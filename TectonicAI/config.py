@@ -75,7 +75,7 @@ CONFIG = {
     },
 
     "ga_vector_model": {
-        "population_size": 100, "generations": 150, "mutation_rate": 0.25,
+        "population_size": 100, "generations": 150, "mutation_rate": 0.015,
         "magnitude_threshold": 4.5, "n_islands": 4, "migration_rate": 0.1
     },
 
