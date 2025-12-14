@@ -1,0 +1,88 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:pageModels="clr-namespace:Tectonic.PageModels"
+             xmlns:models="clr-namespace:Tectonic.Models"
+             xmlns:controls="clr-namespace:Tectonic.Pages.Controls"
+             xmlns:pullToRefresh="clr-namespace:Syncfusion.Maui.Toolkit.PullToRefresh;assembly=Syncfusion.Maui.Toolkit"
+             xmlns:toolkit="http://schemas.microsoft.com/dotnet/2022/maui/toolkit"
+             x:Class="Tectonic.Pages.MainPage"
+             x:DataType="pageModels:MainPageModel"
+             Title="Dashboard Analisis Gempa">
+
+	<ContentPage.Behaviors>
+		<!-- Memanggil command saat halaman pertama kali muncul -->
+		<toolkit:EventToCommandBehavior
+                EventName="Appearing"
+                Command="{Binding AppearingCommand}" />
+	</ContentPage.Behaviors>
+
+	<ContentPage.Resources>
+		<ResourceDictionary>
+			<toolkit:InvertedBoolConverter x:Key="InvertedBoolConverter" />
+		</ResourceDictionary>
+	</ContentPage.Resources>
+
+	<Grid>
+		<!-- Menggunakan Pull-to-Refresh untuk memanggil RefreshDataCommand -->
+		<pullToRefresh:SfPullToRefresh
+            IsRefreshing="{Binding IsBusy}"
+            RefreshCommand="{Binding RefreshDataCommand}">
+			<pullToRefresh:SfPullToRefresh.PullableContent>
+				<ScrollView>
+					<VerticalStackLayout Spacing="15" Padding="20">
+
+						<!-- === BAGIAN CHART RINGKASAN BAHAYA === -->
+						<Label Text="Ringkasan Tingkat Bahaya" Style="{StaticResource Title2}"/>
+						<controls:CategoryChart x:Name="SeverityChart" ItemsSource="{Binding SeveritySummary}" />
+						<!-- CATATAN: Pastikan control CategoryChart Anda bisa menerima `ItemsSource` dari SeveritySummary -->
+
+						<!-- === BAGIAN LOKASI PALING RAWAN (ACO) === -->
+						<Label Text="5 Lokasi Paling Rawan (Magnitudo Tertinggi)" Style="{StaticResource Title2}"/>
+						<ScrollView Orientation="Horizontal" Margin="-20,0">
+							<HorizontalStackLayout
+                                Spacing="15" Padding="20,0"
+                                BindableLayout.ItemsSource="{Binding TopRiskyLocations}">
+								<BindableLayout.ItemTemplate>
+									<!-- Menggunakan Control kustom kita -->
+									<DataTemplate x:DataType="models:RiskyLocation">
+										<controls:RiskyLocationCardView WidthRequest="200" />
+									</DataTemplate>
+								</BindableLayout.ItemTemplate>
+							</HorizontalStackLayout>
+						</ScrollView>
+
+						<!-- === BAGIAN HASIL TERBAIK (GA) & PETA === -->
+						<Label Text="Hasil Optimal (GA) dan Peta Risiko" Style="{StaticResource Title2}"/>
+
+						<!-- Frame untuk menampilkan hasil GA -->
+						<Frame Padding="15" CornerRadius="8" BorderColor="LightGray" HasShadow="True">
+							<VerticalStackLayout Spacing="10">
+								<Label Text="Kombinasi Risiko Tertinggi:" FontAttributes="Bold" />
+								<Grid ColumnDefinitions="*,*" RowSpacing="5">
+									<Label Grid.Row="0" Grid.Column="0" Text="{Binding GaResult.Magnitudo, StringFormat='Magnitudo: {0:F2}'}" />
+									<Label Grid.Row="0" Grid.Column="1" Text="{Binding GaResult.KedalamanKm, StringFormat='Kedalaman: {0:F1} km'}" />
+									<Label Grid.Row="1" Grid.Column="0" Text="{Binding GaResult.AreaTerdampakKm, StringFormat='Dampak: {0:F1} km'}" />
+									<Label Grid.Row="1" Grid.Column="1" Text="{Binding GaResult.FitnessScore, StringFormat='Fitness: {0:F2}'}" TextColor="Red"/>
+								</Grid>
+							</VerticalStackLayout>
+						</Frame>
+
+						<!-- Frame untuk menampilkan Peta Risiko dari API -->
+						<Frame Padding="5" CornerRadius="8" BorderColor="LightGray" HasShadow="True">
+							<Image Source="{Binding RiskMapSource}" Aspect="AspectFill" HeightRequest="250" />
+						</Frame>
+
+					</VerticalStackLayout>
+				</ScrollView>
+			</pullToRefresh:SfPullToRefresh.PullableContent>
+		</pullToRefresh:SfPullToRefresh>
+
+		<!-- Tombol Add/Refresh di pojok kanan bawah -->
+		<controls:AddButton
+            Margin="20"
+            IsEnabled="{Binding IsNotBusy}"
+            Command="{Binding RefreshDataCommand}"
+            SemanticProperties.Description="Refresh Data"/>
+	</Grid>
+</ContentPage>

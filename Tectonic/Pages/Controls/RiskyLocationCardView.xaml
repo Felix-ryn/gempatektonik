@@ -1,0 +1,15 @@
+<!-- Pages/Controls/RiskyLocationCardView.xaml -->
+<?xml version="1.0" encoding="utf-8" ?>
+<Frame xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+       xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+       xmlns:models="clr-namespace:Tectonic.Models"
+       x:DataType="models:RiskyLocation"
+       x:Class="Tectonic.Pages.Controls.RiskyLocationCardView"
+       Padding="15" BorderColor="LightGray" CornerRadius="8" HasShadow="True">
+    <VerticalStackLayout Spacing="5">
+        <Label Text="{Binding Lokasi}" FontAttributes="Bold" LineBreakMode="TailTruncation" />
+        <BoxView HeightRequest="1" Color="LightGray" />
+        <Label Text="{Binding Magnitudo, StringFormat='Magnitudo: {0:F1}'}" FontSize="Small" />
+        <Label Text="{Binding KedalamanKm, StringFormat='Kedalaman: {0:F0} km'}" FontSize="Small" />
+    </VerticalStackLayout>
+</Frame>

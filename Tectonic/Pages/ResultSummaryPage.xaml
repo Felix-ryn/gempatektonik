@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:pageModels="clr-namespace:Tectonic.PageModels"
+             x:Class="Tectonic.Pages.ResultSummaryPage"
+             x:DataType="pageModels:ResultSummaryPageModel"
+             Title="Laporan Ringkasan Analisis">
+
+	<Grid>
+		<!-- Activity Indicator untuk memberi tahu pengguna bahwa data sedang dimuat -->
+		<ActivityIndicator IsRunning="{Binding IsLoading}" IsVisible="{Binding IsLoading}"
+                           HorizontalOptions="Center" VerticalOptions="Center"/>
+
+		<!-- Konten utama akan muncul setelah loading selesai -->
+		<ScrollView IsVisible="{Binding IsLoading, Converter={StaticResource InvertedBoolConverter}}">
+			<VerticalStackLayout Padding="{StaticResource LayoutPadding}" Spacing="25">
+
+				<!-- ============================================= -->
+				<!--  BAGIAN HASIL OPTIMAL DARI GENETIC ALGORITHM  -->
+				<!-- ============================================= -->
+				<Label Text="Kombinasi Risiko Tertinggi (GA)"
+                       Style="{StaticResource Title2}"
+                       FontAttributes="Bold"
+                       HorizontalTextAlignment="Center"/>
+
+				<Frame Padding="20" CornerRadius="10" BorderColor="LightGray" HasShadow="True">
+					<Grid ColumnDefinitions="*, *" RowSpacing="15">
+						<Grid.Resources>
+							<Style TargetType="Label">
+								<Setter Property="FontSize" Value="Medium" />
+							</Style>
+						</Grid.Resources>
+
+						<Label Grid.Row="0" Grid.Column="0" Text="Magnitudo"/>
+						<Label Grid.Row="0" Grid.Column="1" Text="{Binding GaResult.Magnitudo, StringFormat='{0:F2}'}" FontAttributes="Bold" HorizontalTextAlignment="End"/>
+
+						<Label Grid.Row="1" Grid.Column="0" Text="Kedalaman"/>
+						<Label Grid.Row="1" Grid.Column="1" Text="{Binding GaResult.KedalamanKm, StringFormat='{0:F1} km'}" FontAttributes="Bold" HorizontalTextAlignment="End"/>
+
+						<Label Grid.Row="2" Grid.Column="0" Text="Area Dampak"/>
+						<Label Grid.Row="2" Grid.Column="1" Text="{Binding GaResult.AreaTerdampakKm, StringFormat='{0:F1} km'}" FontAttributes="Bold" HorizontalTextAlignment="End"/>
+
+						<BoxView Grid.Row="3" Grid.ColumnSpan="2" HeightRequest="1" Color="LightGray"/>
+
+						<Label Grid.Row="4" Grid.Column="0" Text="Skor Fitness" TextColor="{StaticResource Primary}"/>
+						<Label Grid.Row="4" Grid.Column="1" Text="{Binding GaResult.FitnessScore, StringFormat='{0:F2}'}" FontAttributes="Bold" TextColor="{StaticResource Primary}" HorizontalTextAlignment="End"/>
+					</Grid>
+				</Frame>
+
+
+				<!-- ============================================== -->
+				<!--  BAGIAN PETA RISIKO DARI ANT COLONY OPTIMIZATION -->
+				<!-- ============================================== -->
+				<Label Text="Peta Sebaran Risiko (ACO)"
+                       Style="{StaticResource Title2}"
+                       FontAttributes="Bold"
+                       HorizontalTextAlignment="Center"/>
+
+				<Frame CornerRadius="10" BorderColor="LightGray" HasShadow="True" IsClippedToBounds="True">
+					<Image Source="{Binding RiskMapSource}"
+                           Aspect="AspectFill"
+                           MinimumHeightRequest="300"
+                           SemanticProperties.Description="Peta visualisasi wilayah rawan gempa berdasarkan hasil analisis Ant Colony Optimization"/>
+				</Frame>
+
+			</VerticalStackLayout>
+		</ScrollView>
+	</Grid>
+
+</ContentPage>

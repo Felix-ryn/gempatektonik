@@ -1,0 +1,225 @@
+﻿import json
+import logging
+import os
+import pandas as pd
+import numpy as np
+from pathlib import Path
+from jinja2 import Template
+import folium
+from folium.plugins import MarkerCluster, HeatMap, MousePosition, MiniMap
+
+def generate_dashboard(
+    df: pd.DataFrame, 
+    config: dict, 
+    aco_results: dict, 
+    ga_results: dict, 
+    lstm_results: dict, 
+    eval_results: dict
+):
+    """
+    Generate Strategic Dashboard:
+    1. Membangun Peta Interaktif (Layered: Basic, Heatmap, GA Path, Risk Zone).
+    2. Menghitung Statistik Ringkas.
+    3. Merender template HTML (Dashboard Utama).
+    """
+    logger = logging.getLogger("Dashboard_Generator")
+    logger.setLevel(logging.INFO)
+    logger.info("=== GENERATING STRATEGIC RISK DASHBOARD (Full Integration) ===")
+
+    if df.empty:
+        logger.error("DataFrame kosong. Tidak dapat membuat dashboard.")
+        return
+
+    # ---------------------------------------------------------------------
+    # 1. INITIALIZE FOLIUM MAP ('m')
+    # ---------------------------------------------------------------------
+    # Cari titik tengah (Center Map)
+    lat_col = 'Lintang' if 'Lintang' in df.columns else 'Latitude'
+    lon_col = 'Bujur' if 'Bujur' in df.columns else 'Longitude'
+
+    if lat_col in df.columns and lon_col in df.columns:
+        center_lat = df[lat_col].mean()
+        center_lon = df[lon_col].mean()
+    else:
+        # Default Indonesia Coordinate
+        center_lat, center_lon = -2.5489, 118.0149
+
+    # Inisialisasi Peta
+    m = folium.Map(location=[center_lat, center_lon], zoom_start=5, tiles='cartodbdark_matter')
+
+    # Plugins Dasar
+    MousePosition().add_to(m)
+    MiniMap(toggle_display=True).add_to(m)
+
+    # ---------------------------------------------------------------------
+    # 2. LAYER: SEISMIC HEATMAP & MARKERS
+    # ---------------------------------------------------------------------
+    # Heatmap Layer
+    heat_data = df[[lat_col, lon_col]].values.tolist()
+    HeatMap(heat_data, radius=15, blur=10, name="Seismic Heatmap").add_to(m)
+
+    # Cluster Marker (Event Titik Gempa)
+    marker_cluster = MarkerCluster(name="Earthquake Clusters").add_to(m)
+    
+    # Menambahkan beberapa marker terbaru (Max 100 agar ringan)
+    recent_events = df.tail(100)
+    for _, row in recent_events.iterrows():
+        # Tentukan warna icon berdasarkan Magnitudo atau Status Zona
+        icon_color = 'red' if row.get('Status_Zona') == 'Terdampak' else 'blue'
+        popup_info = (
+            f"Mag: {row.get('Magnitudo', '-')}<br>"
+            f"Depth: {row.get('Kedalaman', '-')} km<br>"
+            f"Time: {row.get('Tanggal', '-')}"
+        )
+        folium.Marker(
+            location=[row[lat_col], row[lon_col]],
+            popup=popup_info,
+            icon=folium.Icon(color=icon_color, icon='info-sign')
+        ).add_to(marker_cluster)
+
+    # ---------------------------------------------------------------------
+    # 3. LAYER: GA - BEST PATH ("The Snake")
+    # ---------------------------------------------------------------------
+    ga_layer = folium.FeatureGroup(name="GA: Optimal/Risk Path", show=True)
+    
+    # Asumsi: ga_results berisi dataframe history path, atau kita gunakan kolom 'Is_Best' di df utama
+    # Jika df memiliki hasil prediksi lat/lon dari GA
+    if 'Pred_Lat' in df.columns and 'Pred_Lon' in df.columns:
+        df_ga = df.copy() # Gunakan df utama sebagai source
+        
+        # Ambil point yang valid (non-NaN)
+        valid_path = df_ga.dropna(subset=['Pred_Lat', 'Pred_Lon'])
+        
+        # Opsi A: Ambil Path terbaik (jika ada flag Is_Best)
+        if 'Is_Best' in valid_path.columns:
+            path_points = valid_path[valid_path['Is_Best'] == True][['Pred_Lat', 'Pred_Lon']].values.tolist()
+        else:
+            # Opsi B: Ambil Path chronological terakhir (N poin terakhir)
+            path_points = valid_path.tail(20)[['Pred_Lat', 'Pred_Lon']].values.tolist()
+
+        if len(path_points) > 1:
+            folium.PolyLine(
+                path_points,
+                color="#c93cff", # Ungu neon
+                weight=4,
+                opacity=0.9,
+                tooltip="GA Optimal Risk Path"
+            ).add_to(ga_layer)
+
+            # Start & End Markers for Path
+            folium.Marker(path_points[0], icon=folium.Icon(color='green', icon='play', prefix='fa'), tooltip="Start Path").add_to(ga_layer)
+            folium.Marker(path_points[-1], icon=folium.Icon(color='red', icon='flag-checkered', prefix='fa'), tooltip="Current Pos").add_to(ga_layer)
+            
+            # -----------------------------------------------------------------
+            # 4. LAYER: GA PREDICTION LINE (FORECAST)
+            # -----------------------------------------------------------------
+            # Project satu garis ke depan berdasarkan angle terakhir
+            try:
+                last_row = valid_path.iloc[-1]
+                lat0, lon0 = last_row['Pred_Lat'], last_row['Pred_Lon']
+                
+                # Default angle jika kolom Angle_Deg tidak ada
+                angle_deg = last_row.get('Angle_Deg', 45) 
+                angle_rad = np.radians(angle_deg)
+                
+                distance_km = 100 # Prediksi sejauh 100km
+                R = 6371 # Radius bumi
+
+                end_lat = lat0 + (distance_km/R) * (180/np.pi) * np.cos(angle_rad)
+                end_lon = lon0 + (distance_km/R) * (180/np.pi) * np.sin(angle_rad) / np.cos(np.radians(lat0))
+
+                folium.PolyLine(
+                    [(lat0, lon0), (end_lat, end_lon)],
+                    color="yellow",
+                    weight=3,
+                    dash_array="10, 10",
+                    tooltip=f"Forecast Trajectory ({angle_deg}°)"
+                ).add_to(ga_layer)
+            except Exception as e:
+                logger.warning(f"Forecast Line error: {e}")
+
+    ga_layer.add_to(m)
+
+    # Add Control
+    folium.LayerControl().add_to(m)
+
+    # ---------------------------------------------------------------------
+    # 5. PREPARE HTML & STATS
+    # ---------------------------------------------------------------------
+    
+    # Simpan Peta Saja sebagai HTML string/file
+    map_output_path = Path(config['output_paths']['output_base']) / "strategic_map_embed.html"
+    os.makedirs(map_output_path.parent, exist_ok=True)
+    m.save(str(map_output_path)) # Save physical file
+    
+    # Baca kembali content peta untuk di-embed (Inline)
+    # Ini memastikan Peta Folium masuk ke dalam Dashboard Template
+    folium_html_content = m.get_root().render()
+    
+    # Collect Metrics Stats for Dashboard JSON Data
+    stats = {
+        "total_events": len(df),
+        "red_zones": int((df.get('Status_Zona') == 'Terdampak').sum() if 'Status_Zona' in df.columns else 0),
+        "anomalies_detected": int(df.get('is_Anomaly', False).sum()) if 'is_Anomaly' in df.columns else 0,
+        "max_magnitude": float(df['Magnitudo'].max()) if 'Magnitudo' in df.columns else 0.0
+    }
+    
+    # Load Evaluation Metrics External
+    metrics_summary = {"accuracy": 0.0, "mae": 0.0}
+    try:
+        # Override with values passed from arguments
+        if isinstance(eval_results, dict):
+            # Coba cari struktur typical metrics
+            flat_metrics = {}
+            for k, v in eval_results.items():
+                if isinstance(v, (int, float, str)):
+                    flat_metrics[k] = v
+                elif isinstance(v, dict):
+                     # Ambil 'f1-score' dari classification report misalnya
+                     pass 
+            metrics_summary.update(flat_metrics)
+            
+            # Spesifik untuk Accuracy Key
+            if 'accuracy' in eval_results:
+                metrics_summary['accuracy'] = eval_results['accuracy']
+            elif 'overall' in eval_results and 'accuracy' in eval_results['overall']:
+                metrics_summary['accuracy'] = eval_results['overall']['accuracy']
+
+    except Exception as e:
+        logger.warning(f"Error parsing metrics: {e}")
+
+    # Data Bundle untuk JavaScript di Frontend
+    dashboard_data_bundle = {
+        "stats": stats,
+        "metrics": metrics_summary,
+        "last_updated": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
+
+    # ---------------------------------------------------------------------
+    # 6. RENDER & SAVE DASHBOARD
+    # ---------------------------------------------------------------------
+    template_path = Path(config['paths'].get('assets_dir', 'assets')) / "dashboard_template.html"
+    output_dashboard = Path(config['output_paths'].get('dashboard', 'output/dashboard.html'))
+
+    if not template_path.exists():
+        logger.warning(f"Template Dashboard tidak ditemukan di {template_path}. Hanya menyimpan map.")
+        return
+
+    try:
+        with open(template_path, 'r', encoding='utf-8') as f:
+            template_str = f.read()
+            jinja_template = Template(template_str)
+
+        # Render: inject map_content & JSON Data
+        final_html = jinja_template.render(
+            folium_map=folium_html_content, # Embed string HTML map
+            map_data_json=json.dumps(dashboard_data_bundle)
+        )
+
+        with open(output_dashboard, 'w', encoding='utf-8') as f:
+            f.write(final_html)
+            
+        logger.info(f"✅ DASHBOARD GENERATED SUCCESSFULLY: {output_dashboard}")
+
+    except Exception as e:
+        logger.error(f"Gagal merender Dashboard Template: {e}")

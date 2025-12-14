@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html>
+<head>
+    
+    <meta http-equiv="content-type" content="text/html; charset=UTF-8" />
+    <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.3/dist/leaflet.js"></script>
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Leaflet.awesome-markers/2.0.2/leaflet.awesome-markers.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.3/dist/leaflet.css"/>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.2/dist/css/bootstrap.min.css"/>
+    <link rel="stylesheet" href="https://netdna.bootstrapcdn.com/bootstrap/3.0.0/css/bootstrap-glyphicons.css"/>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.2.0/css/all.min.css"/>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/Leaflet.awesome-markers/2.0.2/leaflet.awesome-markers.css"/>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/python-visualization/folium/folium/templates/leaflet.awesome.rotate.min.css"/>
+    
+            <meta name="viewport" content="width=device-width,
+                initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+            <style>
+                #map_ff522c86e0bc89ab8224643fdd4374be {
+                    position: relative;
+                    width: 100.0%;
+                    height: 100.0%;
+                    left: 0.0%;
+                    top: 0.0%;
+                }
+                .leaflet-container { font-size: 1rem; }
+            </style>
+
+            <style>html, body {
+                width: 100%;
+                height: 100%;
+                margin: 0;
+                padding: 0;
+            }
+            </style>
+
+            <style>#map {
+                position:absolute;
+                top:0;
+                bottom:0;
+                right:0;
+                left:0;
+                }
+            </style>
+
+            <script>
+                L_NO_TOUCH = false;
+                L_DISABLE_3D = false;
+            </script>
+
+        
+</head>
+<body>
+    
+    
+    <div style='position: fixed; top: 10px; right: 10px; z-index: 9999; background: #272727; color: white; padding: 10px; border-radius: 5px; opacity: 0.9;'>
+        <h4>RISIKO STRATEGIS LIVE</h4>
+        <hr style='margin: 5px 0; border-color: #555;'>
+        <b>Final Prob:</b> <span style='color:#27ae60;'><b>2.3%</b></span><br>
+        <b>LSTM Anomaly:</b> NORMAL<br>
+        <b>CNN Impact:</b> 92.15%<br>
+        <b>Zonasi ACO:</b> Aman
+    </div>
+    
+    
+            <div class="folium-map" id="map_ff522c86e0bc89ab8224643fdd4374be" ></div>
+        
+</body>
+<script>
+    
+    
+            var map_ff522c86e0bc89ab8224643fdd4374be = L.map(
+                "map_ff522c86e0bc89ab8224643fdd4374be",
+                {
+                    center: [-9.35, 111.85],
+                    crs: L.CRS.EPSG3857,
+                    ...{
+  "zoom": 9,
+  "zoomControl": true,
+  "preferCanvas": false,
+}
+
+                }
+            );
+
+            
+
+        
+    
+            var tile_layer_c4872d21e67baeb93a0f7754ddfe639d = L.tileLayer(
+                "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+                {
+  "minZoom": 0,
+  "maxZoom": 20,
+  "maxNativeZoom": 20,
+  "noWrap": false,
+  "attribution": "\u0026copy; \u003ca href=\"https://www.openstreetmap.org/copyright\"\u003eOpenStreetMap\u003c/a\u003e contributors \u0026copy; \u003ca href=\"https://carto.com/attributions\"\u003eCARTO\u003c/a\u003e",
+  "subdomains": "abcd",
+  "detectRetina": false,
+  "tms": false,
+  "opacity": 1,
+}
+
+            );
+        
+    
+            tile_layer_c4872d21e67baeb93a0f7754ddfe639d.addTo(map_ff522c86e0bc89ab8224643fdd4374be);
+        
+    
+            var marker_defd5010d47ee035cc5e4f377391a5b2 = L.marker(
+                [-9.35, 111.85],
+                {
+}
+            ).addTo(map_ff522c86e0bc89ab8224643fdd4374be);
+        
+    
+            var icon_3204ff0833427b0a479e48c406352ad2 = L.AwesomeMarkers.icon(
+                {
+  "markerColor": "blue",
+  "iconColor": "white",
+  "icon": "crosshairs",
+  "prefix": "fa",
+  "extraClasses": "fa-rotate-0",
+}
+            );
+        
+    
+        var popup_8224b183b0810d4c9abdc17ccbb34513 = L.popup({
+  "maxWidth": "100%",
+});
+
+        
+            
+                var html_0092bc097884c0bd6be15c80577f4863 = $(`<div id="html_0092bc097884c0bd6be15c80577f4863" style="width: 100.0%; height: 100.0%;">     <b>LIVE EVENT:</b> 141 km BaratDaya KAB-BLITAR-JATIM<br>     M 5.20 (10.0 km)<br>     ---     <b>RISIKO FINAL:</b> <span style="color:#27ae60;"><b>2.3%</b></span><br>     <b>LSTM:</b> NORMAL     </div>`)[0];
+                popup_8224b183b0810d4c9abdc17ccbb34513.setContent(html_0092bc097884c0bd6be15c80577f4863);
+            
+        
+
+        marker_defd5010d47ee035cc5e4f377391a5b2.bindPopup(popup_8224b183b0810d4c9abdc17ccbb34513)
+        ;
+
+        
+    
+    
+            marker_defd5010d47ee035cc5e4f377391a5b2.bindTooltip(
+                `<div>
+                     TITIK KEJADIAN TERBARU (INPUT)
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+                marker_defd5010d47ee035cc5e4f377391a5b2.setIcon(icon_3204ff0833427b0a479e48c406352ad2);
+            
+    
+            var circle_0ba96b7ccd637e711926eb8805988253 = L.circle(
+                [-9.35, 111.85],
+                {"bubblingMouseEvents": true, "color": "#27ae60", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#27ae60", "fillOpacity": 0.4, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 11857.82442103103, "stroke": true, "weight": 2}
+            ).addTo(map_ff522c86e0bc89ab8224643fdd4374be);
+        
+    
+            circle_0ba96b7ccd637e711926eb8805988253.bindTooltip(
+                `<div>
+                     AREA RISIKO (Radius 11.9 km)
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var poly_line_adc133f2746b08b4ca2fceb4650a6b6e = L.polyline(
+                [[-9.35, 111.85], [-9.37517536440962, 111.85900170970787]],
+                {"bubblingMouseEvents": true, "color": "#00ffff", "dashArray": "5, 5", "dashOffset": null, "fill": false, "fillColor": "#00ffff", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 1.0, "smoothFactor": 1.0, "stroke": true, "weight": 4}
+            ).addTo(map_ff522c86e0bc89ab8224643fdd4374be);
+        
+    
+            poly_line_adc133f2746b08b4ca2fceb4650a6b6e.bindTooltip(
+                `<div>
+                     Vektor Prediksi GA: 3.0 km @ 160.6°
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+    
+            var circle_marker_c4763048796198528e29bf2ac31e6311 = L.circleMarker(
+                [-9.37517536440962, 111.85900170970787],
+                {"bubblingMouseEvents": true, "color": "#00ffff", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#00ffff", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 6, "stroke": true, "weight": 3}
+            ).addTo(map_ff522c86e0bc89ab8224643fdd4374be);
+        
+    
+            circle_marker_c4763048796198528e29bf2ac31e6311.bindTooltip(
+                `<div>
+                     TITIK PREDIKSI BERIKUTNYA (GA)
+                 </div>`,
+                {
+  "sticky": true,
+}
+            );
+        
+</script>
+</html>

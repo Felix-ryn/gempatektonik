@@ -1,0 +1,101 @@
+# Tectonic_py/src/visualization.py
+import folium
+import logging
+
+def create_impact_map(df, centroids, path):
+    """
+    Membuat peta interaktif Folium yang menampilkan ZONA TERDAMPAK sebagai LINGKARAN
+    untuk setiap kejadian gempa, bukan sebagai grid.
+    """
+    logging.info(f"Membuat peta interaktif di {path}...")
+    if df.empty:
+        logging.warning("DataFrame kosong, peta tidak dapat dibuat.")
+        return
+
+    # Tentukan pusat peta dari rata-rata semua kejadian
+    try:
+        map_center = [df['Lintang'].mean(), df['Bujur'].mean()]
+    except (KeyError, TypeError):
+        logging.error("Kolom Lintang/Bujur tidak valid. Menggunakan pusat default.")
+        map_center = [-7.5, 111.0] # Pusat default di Jawa
+
+    m = folium.Map(location=map_center, zoom_start=7, tiles="CartoDB positron")
+
+    # Tambahkan centroid cluster sebagai penanda
+    if centroids:
+        for cluster_id, center in centroids.items():
+            folium.Marker(
+                location=[center['Lintang'], center['Bujur']],
+                popup=f"<b>Centroid Cluster {cluster_id}</b>",
+                icon=folium.Icon(color='blue', icon='cloud', prefix='fa')
+            ).add_to(m)
+
+    # Tambahkan LINGKARAN untuk setiap kejadian gempa
+    for _, row in df.iterrows():
+        # Tentukan warna berdasarkan tipe
+        color = "red" if row.get('isVulkanik', 0) == 1 else "orange"
+        
+        # Radius dalam meter untuk Folium
+        radius_m = row.get('R_forecast', 1) * 1000 # Konversi km ke meter
+        
+        # Buat popup dengan informasi yang relevan
+        popup_html = (
+            f"<b>Lokasi:</b> {row.get('Lokasi', 'N/A')}<br>"
+            f"<b>Tanggal:</b> {row.get('Tanggal', 'N/A').strftime('%Y-%m-%d %H:%M')}<br>"
+            f"<b>Magnitudo:</b> {row.get('Magnitudo', 0):.2f}<br>"
+            f"<b>Kedalaman:</b> {row.get('Kedalaman (km)', 0):.1f} km<br>"
+            f"<b>Radius Prediksi (Forecast):</b> {row.get('R_forecast', 0):.2f} km<br>"
+            f"<b>Prob. Terdampak (NB):</b> {row.get('Prob_Terdampak_NB', 0):.2%}"
+        )
+        
+        folium.Circle(
+            location=[row['Lintang'], row['Bujur']],
+            radius=radius_m,
+            color=color,
+            fill=True,
+            fill_opacity=0.3,
+            popup=folium.Popup(popup_html, max_width=300)
+        ).add_to(m)
+        
+    m.save(path)
+    logging.info(f"Peta dampak berbasis lingkaran berhasil disimpan.")
+
+# ... (kode create_impact_map yang sudah ada di atasnya) ...
+
+import matplotlib.pyplot as plt
+
+def plot_lstm_results(df, path):
+    """Membuat dan menyimpan plot yang menunjukkan perbandingan R_pred dan R_forecast."""
+    logging.info(f"Membuat plot perbandingan LSTM di {path}...")
+    
+    # Pastikan data diurutkan berdasarkan tanggal
+    df_plot = df.sort_values('Tanggal').copy()
+    
+    # Ambil 50 data terakhir agar plot tidak terlalu padat
+    df_plot = df_plot.tail(50).reset_index()
+
+    plt.style.use('seaborn-v0_8-whitegrid')
+    fig, ax = plt.subplots(figsize=(15, 7))
+
+    ax.plot(df_plot.index, df_plot['R_pred'], label='Radius Prediksi (GA)', color='royalblue', marker='o', linestyle='--')
+    ax.plot(df_plot.index, df_plot['R_forecast'], label='Radius Forecast (LSTM-Adjusted)', color='crimson', marker='x', linestyle='-')
+    
+    # Menambahkan panah untuk menunjukkan perubahan
+    for i, row in df_plot.iterrows():
+        if row['R_forecast'] > row['R_pred']:
+            ax.annotate('', xy=(i, row['R_forecast']), xytext=(i, row['R_pred']),
+                        arrowprops=dict(facecolor='green', shrink=0.05, width=1, headwidth=5, headlength=5, alpha=0.6))
+        elif row['R_forecast'] < row['R_pred']:
+            ax.annotate('', xy=(i, row['R_forecast']), xytext=(i, row['R_pred']),
+                        arrowprops=dict(facecolor='red', shrink=0.05, width=1, headwidth=5, headlength=5, alpha=0.6))
+
+    ax.set_title('Perbandingan Radius Prediksi (GA) vs. Forecast (LSTM)', fontsize=16)
+    ax.set_ylabel('Radius Terdampak Prediksi (km)', fontsize=12)
+    ax.set_xlabel('Urutan Kejadian (50 Terakhir)', fontsize=12)
+    ax.legend(fontsize=10)
+    ax.grid(True, which='both', linestyle='--', linewidth=0.5)
+    
+    plt.tight_layout()
+    plt.savefig(path, dpi=150)
+    plt.close()
+    logging.info("Plot LSTM berhasil disimpan.")

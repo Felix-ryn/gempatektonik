@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:pageModels="clr-namespace:Tectonic.PageModels"
+             xmlns:models="clr-namespace:Tectonic.Models"
+             xmlns:controls="clr-namespace:Tectonic.Pages.Controls"
+             xmlns:toolkit="http://schemas.microsoft.com/dotnet/2022/maui/toolkit"
+             x:Class="Tectonic.Pages.RiskListPage"
+             x:DataType="pageModels:RiskListPageModel"
+             Title="Daftar Lokasi Rawan (ACO)">
+
+	<!-- Behavior ini akan memanggil 'AppearingCommand' di ViewModel saat halaman ditampilkan -->
+	<ContentPage.Behaviors>
+		<toolkit:EventToCommandBehavior
+                EventName="Appearing"
+                Command="{Binding AppearingCommand}" />
+	</ContentPage.Behaviors>
+
+	<Grid>
+		<!-- Tambahkan ActivityIndicator untuk feedback saat loading -->
+		<ActivityIndicator IsRunning="{Binding IsBusy}" IsVisible="{Binding IsBusy}"
+                           HorizontalOptions="Center" VerticalOptions="Center"/>
+
+		<ScrollView IsVisible="{Binding IsBusy, Converter={StaticResource InvertedBoolConverter}}">
+			<!-- Ubah binding dari 'Projects' menjadi 'RiskyLocations' -->
+			<VerticalStackLayout
+                BindableLayout.ItemsSource="{Binding RiskyLocations}"
+                Padding="10"
+                Spacing="10">
+				<BindableLayout.ItemTemplate>
+					<!-- Ubah DataType template menjadi 'RiskyLocation' -->
+					<DataTemplate x:DataType="models:RiskyLocation">
+						<!-- Gunakan Border atau Frame untuk tampilan kartu yang bagus -->
+						<Border Stroke="LightGray" StrokeThickness="1" Padding="15" >
+							<Border.StrokeShape>
+								<RoundRectangle CornerRadius="8"/>
+							</Border.StrokeShape>
+
+							<VerticalStackLayout Spacing="8">
+								<!-- Tampilkan Lokasi sebagai Judul Utama -->
+								<Label Text="{Binding Lokasi}" FontSize="Large" FontAttributes="Bold" LineBreakMode="TailTruncation" />
+
+								<BoxView HeightRequest="1" Color="LightGray" />
+
+								<!-- Gunakan Grid untuk merapikan detail data -->
+								<Grid ColumnDefinitions="*, *" RowDefinitions="Auto, Auto" RowSpacing="5" ColumnSpacing="10">
+									<Label Grid.Row="0" Grid.Column="0" Text="{Binding Magnitudo, StringFormat='Magnitudo: {0:F1}'}"/>
+									<Label Grid.Row="0" Grid.Column="1" Text="{Binding KedalamanKm, StringFormat='Kedalaman: {0:F0} km'}"/>
+									<Label Grid.Row="1" Grid.Column="0" Text="{Binding AreaTerdampakKm, StringFormat='Area Dampak: {0:F0} km'}"/>
+									<Label Grid.Row="1" Grid.Column="1" Text="{Binding LabelBahaya, StringFormat='Level: {0}'}" FontAttributes="Italic" TextColor="Red"/>
+								</Grid>
+							</VerticalStackLayout>
+
+							<!-- 
+                            TapGestureRecognizer dihapus untuk sementara karena kita tidak punya halaman detail. 
+                            Jika ingin membuatnya nanti, bisa ditambahkan kembali seperti ini:
+                            <Border.GestureRecognizers>
+                                <TapGestureRecognizer Command="{...}" CommandParameter="{Binding .}"/>
+                            </Border.GestureRecognizers>
+                            -->
+						</Border>
+					</DataTemplate>
+				</BindableLayout.ItemTemplate>
+			</VerticalStackLayout>
+		</ScrollView>
+
+		<!-- 
+        Fungsikan ulang AddButton menjadi tombol Refresh.
+        Bind command ke 'LoadLocationsCommand' yang baru kita buat.
+        -->
+		<controls:AddButton
+            VerticalOptions="End" HorizontalOptions="End" Margin="20"
+            Command="{Binding LoadLocationsCommand}"
+            SemanticProperties.Description="Refresh Data Lokasi Rawan"/>
+	</Grid>
+</ContentPage>

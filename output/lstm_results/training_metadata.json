@@ -1,0 +1,21 @@
+{
+    "timestamp": "2025-12-14 15:35:06.588959",
+    "features_used": [
+        "Magnitudo_scaled",
+        "Kedalaman_scaled",
+        "rolling_mag_mean_scaled",
+        "rolling_event_count_scaled",
+        "Time_Delta_Hours_scaled",
+        "Dist_Delta_KM_scaled",
+        "hour_sin",
+        "hour_cos",
+        "month_sin",
+        "month_cos",
+        "Context_Risk_Pheromone",
+        "Context_Zone_IsRed",
+        "Global_Tectonic_Stress",
+        "Dist_To_GA_Pred"
+    ],
+    "final_loss": 32.1968879699707,
+    "platform": "Windows-10-10.0.26100-SP0"
+}

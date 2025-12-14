@@ -1,0 +1,15 @@
+Feature,Importance
+hour_cos,0.10622572
+month_sin,0.1010386
+hour_sin,0.096378975
+Magnitudo_scaled,0.09596551
+rolling_event_count_scaled,0.08759615
+Context_Zone_IsRed,0.07418956
+month_cos,0.07085617
+Dist_Delta_KM_scaled,0.06256452
+Kedalaman_scaled,0.060797125
+rolling_mag_mean_scaled,0.056831867
+Time_Delta_Hours_scaled,0.056636784
+Context_Risk_Pheromone,0.05593597
+Dist_To_GA_Pred,0.04823653
+Global_Tectonic_Stress,0.026746396
