@@ -26,6 +26,7 @@ import platform
 import matplotlib.pyplot as plt
 from datetime import datetime
 from typing import Tuple, Dict, Any, List, Optional, Union
+from lstm_engine_module import LSTMEngine
 
 # --- IMPORT DEEP LEARNING STACK ---
 try:
@@ -182,6 +183,7 @@ class LSTMEngine:
             'anomalies': os.path.join(base_path, 'lstm_results/lstm_detected_anomalies.csv'),
             'bridge_cnn': os.path.join(base_path, 'lstm_results/lstm_data_for_cnn.xlsx'),
             'feature_importance': os.path.join(base_path, 'lstm_results/feature_importance.csv'),
+            'lstm_output': os.path.join(base_path, 'lstm_results/lstm_output_2years.csv'),  # ADDED
             # ARTIFACTS
             'model_file': os.path.join(base_path, 'lstm_results/hybrid_transformer_lstm.keras'),
             'model_plot': os.path.join(base_path, 'lstm_results/model_architecture.png'),
@@ -328,6 +330,7 @@ class LSTMEngine:
 
         return np.array(X, dtype=np.float32), np.array(y, dtype=np.float32)
 
+
     # ========================================================
     # 2. HYBRID MODEL ARCHITECTURE
     # ========================================================
@@ -407,7 +410,7 @@ class LSTMEngine:
         err_series = pd.Series(errors)
 
         roll_mean = err_series.rolling(window=60, min_periods=1).mean()
-        roll_std = err_series.rolling(window=60, min_periods=1).std()
+        roll_std = err_series.rolling(window=60, min_periods=1).std().fillna(0.0)
 
         base_thresh = roll_mean + (self.base_threshold * roll_std)
 
@@ -455,7 +458,31 @@ class LSTMEngine:
             self.logger.info("Analisis Feature Importance completed.")
         except Exception as e:
             self.logger.warning(f"Feature importance gagal: {e}")
+    def update_feature_importance(self, df: pd.DataFrame):
+        """
+        Rebuild feature importance dari input terbaru.
+        Bisa dipanggil kapan saja setelah data baru tersedia.
+        """
+        df_rich = self._enrich_features(df)
+        df_fused = self._fuse_external_intelligence(df_rich)
 
+        features = [
+            'Magnitudo_scaled', 'Kedalaman_scaled',
+            'rolling_mag_mean_scaled', 'rolling_event_count_scaled',
+            'Time_Delta_Hours_scaled', 'Dist_Delta_KM_scaled',
+            'hour_sin', 'hour_cos', 'month_sin', 'month_cos',
+            'Context_Risk_Pheromone', 'Context_Zone_IsRed',
+            'Global_Tectonic_Stress', 'Dist_To_GA_Pred'
+        ]
+
+        final_features = [f for f in features if f in df_fused.columns]
+        if len(final_features) == 0:
+            self.logger.warning("Tidak ada fitur valid untuk feature importance. Skip update.")
+            return
+
+        data_values = df_fused[final_features].astype(float).values
+        self._calculate_feature_importance(data_values, final_features)
+        self.logger.info("Feature importance updated successfully.")
     # ========================================================
     # 4. MAIN RUN PIPELINE (SAFE)
     # ========================================================
@@ -472,27 +499,30 @@ class LSTMEngine:
                 df_out[col] = 0.0 if col != 'is_Anomaly' else False
             return df_out, {"anomalies": df_out.iloc[0:0].copy()}
 
+        # === FILTER 2 TAHUN TERAKHIR (WAJIB UNTUK OUTPUT) ===
+        if 'Tanggal' in df.columns:
+            df['Tanggal'] = pd.to_datetime(df['Tanggal'], errors='coerce')
+            cutoff_date = df['Tanggal'].max() - pd.DateOffset(years=2)
+            df = df[df['Tanggal'] >= cutoff_date].reset_index(drop=True)
+
+        if 'Tanggal' in train_df.columns:
+            train_df['Tanggal'] = pd.to_datetime(train_df['Tanggal'], errors='coerce')
+            train_df = train_df[train_df['Tanggal'] >= cutoff_date].reset_index(drop=True)
+
         start_time = time.time()
         self.logger.info("=== STARTING HYBRID TRANSFORMER-LSTM ENGINE (SAFE) ===")
 
-        # --- STEP 1: Data Prep & Fusion ---
+        # --- STEP 1: Data Prep & Fusion --- #
         df_base = df.copy()
         df_rich = self._enrich_features(df_base)
         df_fused = self._fuse_external_intelligence(df_rich)
 
         # Feature list
         features = [
-            # Gunakan scaled jika ada, jika tidak, gunakan non-scaled (risiko lebih tinggi)
-            'Magnitudo_scaled', 'Kedalaman_scaled', 
-            
-            # Fitur turunan lainnya (diasumsikan sudah dinormalisasi oleh FE)
+            'Magnitudo_scaled', 'Kedalaman_scaled',
             'rolling_mag_mean_scaled', 'rolling_event_count_scaled',
             'Time_Delta_Hours_scaled', 'Dist_Delta_KM_scaled',
-            
-            # Fitur berbasis waktu (diasumsikan sudah diubah ke sin/cos di FE)
             'hour_sin', 'hour_cos', 'month_sin', 'month_cos',
-            
-            # Fitur hasil Fusion (diasumsikan 0-1)
             'Context_Risk_Pheromone', 'Context_Zone_IsRed',
             'Global_Tectonic_Stress', 'Dist_To_GA_Pred'
         ]
@@ -500,33 +530,26 @@ class LSTMEngine:
         # Memastikan fitur yang sebenarnya ada di DataFrame
         final_features = []
         for f in features:
-            # Jika fitur scaled tidak ada, fallback ke versi non-scaled atau 0.0
             if f in df_fused.columns:
                 final_features.append(f)
             elif f.endswith('_scaled'):
-                base_f = f.replace('_scaled', '_Original')
+                base_f = f.replace('_scaled', '')
                 if base_f in df_fused.columns:
                     final_features.append(base_f)
                 else:
-                    base_f = f.replace('_scaled', '')
-                    if base_f in df_fused.columns:
-                        final_features.append(base_f)
-                    else:
-                        self.logger.warning(f"Fitur {f} tidak ditemukan. Skip.")
-            elif f == 'Magnitudo' or f == 'Kedalaman_km':
-                 if f in df_fused.columns:
+                    self.logger.warning(f"Fitur {f} tidak ditemukan. Skip.")
+            elif f in ['Magnitudo', 'Kedalaman_km']:
+                if f in df_fused.columns:
                     final_features.append(f)
 
         self.logger.info(f"Active Features ({len(final_features)}): {final_features}")
 
-        # ... (Ganti data_values menggunakan final_features)
         data_values = df_fused[final_features].astype(float).values
         n_samples, feat_dim = data_values.shape
 
         if n_samples <= self.seq_length:
             self.logger.warning(
-                f"Data terlalu sedikit untuk sequence (N={n_samples}, seq_len={self.seq_length}). "
-                f"LSTM skip anomaly detection."
+                f"Data terlalu sedikit untuk sequence (N={n_samples}, seq_len={self.seq_length}). LSTM skip anomaly detection."
             )
             df_out = df.copy()
             df_out['is_Anomaly'] = False
@@ -536,15 +559,13 @@ class LSTMEngine:
             self._save_outputs(df_out, df_out.iloc[0:0].copy())
             return df_out, {"anomalies": df_out.iloc[0:0].copy()}
 
-        # --- STEP 2: Train Data Build ---
-        train_len = len(train_df)
-        train_len = min(train_len, n_samples)  # guard
+        # --- STEP 2: Train Data Build --- #
+        train_len = min(len(train_df), n_samples)
         train_data = data_values[:train_len]
-
         X_train, y_train = self._prepare_tensor_data(train_data, augment=True)
         input_shape = (self.seq_length, feat_dim)
 
-        # --- STEP 3: Model Management (Auto-Healing) ---
+        # --- STEP 3: Model Management (Auto-Healing) --- #
         force_retrain = True
         if os.path.exists(self.paths['model_file']):
             try:
@@ -557,9 +578,7 @@ class LSTMEngine:
                     self.logger.info("✅ Valid existing model found. Proceeding with Incremental Learning.")
                     force_retrain = False
                 else:
-                    self.logger.warning(
-                        f"⚠️ Model shape mismatch ({temp_model.input_shape} vs {input_shape}). Forcing re-train."
-                    )
+                    self.logger.warning(f"⚠️ Model shape mismatch ({temp_model.input_shape} vs {input_shape}). Forcing re-train.")
             except Exception as e:
                 self.logger.warning(f"Model load failed ({e}). Forcing re-train.")
 
@@ -571,7 +590,7 @@ class LSTMEngine:
             except Exception:
                 pass
 
-        # --- STEP 4: Training Phase (jika cukup data) ---
+        # --- STEP 4: Training Phase --- #
         if len(X_train) > 20:
             cb = [
                 EarlyStopping(patience=6, restore_best_weights=True),
@@ -580,7 +599,6 @@ class LSTMEngine:
                 CSVLogger(os.path.join(self.paths['logs_dir'], 'training.log'), append=True),
                 DetailedLogger(self.logger)
             ]
-
             self.logger.info(f"Training on {len(X_train)} sequences...")
             history = self.model.fit(
                 X_train, y_train,
@@ -601,14 +619,10 @@ class LSTMEngine:
             with open(self.paths['metadata'], 'w') as f:
                 json.dump(meta, f, indent=4)
         else:
-            self.logger.warning(
-                f"Jumlah sequence train terlalu kecil ({len(X_train)}). "
-                f"Model tidak di-train ulang."
-            )
+            self.logger.warning(f"Jumlah sequence train terlalu kecil ({len(X_train)}). Model tidak di-train ulang.")
 
-        # --- STEP 5: Full Inference & Anomaly Detection ---
+        # --- STEP 5: Full Inference & Anomaly Detection --- #
         X_full, y_full = self._prepare_tensor_data(data_values, augment=False)
-
         if len(X_full) == 0:
             self.logger.warning("X_full kosong. Skip anomaly detection.")
             df_out = df.copy()
@@ -619,7 +633,6 @@ class LSTMEngine:
             self._save_outputs(df_out, df_out.iloc[0:0].copy())
             return df_out, {"anomalies": df_out.iloc[0:0].copy()}
 
-        # XAI
         try:
             self._calculate_feature_importance(X_full, features)
         except Exception:
@@ -638,18 +651,11 @@ class LSTMEngine:
             self._save_outputs(df_out, df_out.iloc[0:0].copy())
             return df_out, {"anomalies": df_out.iloc[0:0].copy()}
 
-        # Reconstruction error (MAE)
         mae_loss = np.mean(np.abs(pred_mean - y_full), axis=1)
-
-        # Thresholds
         thresholds = self._adaptive_thresholding(mae_loss, uncertainty)
 
-        # --- STEP 6: Index & Length Synchronization (ANTI-BROADCAST ERROR) ---
         valid_idx = np.array(df.index[self.seq_length:])
-
-        mae_loss, thresholds, uncertainty, valid_idx = sync_len(
-            mae_loss, thresholds, uncertainty, valid_idx
-        )
+        mae_loss, thresholds, uncertainty, valid_idx = sync_len(mae_loss, thresholds, uncertainty, valid_idx)
 
         if len(mae_loss) == 0:
             self.logger.warning("Tidak ada sample valid untuk anomaly mapping.")
@@ -662,14 +668,14 @@ class LSTMEngine:
             return df_out, {"anomalies": df_out.iloc[0:0].copy()}
 
         is_anomaly = mae_loss > thresholds
-        risk = (mae_loss - thresholds) / (thresholds + 1e-9)
-        risk = np.clip(risk, 0, None)
-
+        risk = np.clip((mae_loss - thresholds) / (thresholds + 1e-9), 0, None)
         mae_loss, risk, is_anomaly, thresholds, uncertainty, valid_idx = sync_len(
             mae_loss, risk, is_anomaly, thresholds, uncertainty, valid_idx
         )
+        self.logger.info(f"Valid indices for anomalies: {valid_idx}")
+        if len(valid_idx) == 0:
+            self.logger.warning("Tidak ada data valid untuk mapping anomaly. CSV akan berisi header saja.")
 
-        # --- STEP 7: Inject ke df_out ---
         df_out = df.copy()
         df_out['is_Anomaly'] = False
         df_out['Temporal_Risk_Factor'] = 0.0
@@ -681,20 +687,15 @@ class LSTMEngine:
         df_out.loc[valid_idx, 'Model_Uncertainty'] = uncertainty
         df_out.loc[valid_idx, 'LSTM_Error'] = mae_loss
 
-        # Inject Context ke df_out (untuk CNN)
         for col in ['Context_Impact_Radius', 'Context_Risk_Pheromone']:
             if col in df_fused.columns:
                 df_out[col] = df_fused[col]
 
-        # --- STEP 8: Save Artifacts ---
-        anomalies = df_out[df_out['is_Anomaly'] == True].copy()
+        anomalies = df_out[df_out['is_Anomaly']].copy()
         self._save_outputs(df_out, anomalies)
 
         duration = time.time() - start_time
-        self.logger.info(
-            f"LSTM Engine Completed in {duration:.2f}s. "
-            f"Found {len(anomalies)} anomalies."
-        )
+        self.logger.info(f"LSTM Engine Completed in {duration:.2f}s. Found {len(anomalies)} anomalies.")
 
         return df_out, {"anomalies": anomalies}
 
@@ -718,41 +719,53 @@ class LSTMEngine:
             self.logger.warning(f"Plot loss gagal: {e}")
 
     def _save_outputs(self, df_full, df_anom):
-        """Save anomalies & bridge data untuk CNN."""
-        # A. Anomalies
-        cols = ['Tanggal', 'Lokasi', 'Magnitudo', 'Kedalaman_km',
-                'Temporal_Risk_Factor', 'Model_Uncertainty']
-
-        df_anom = df_anom.copy()
-
-        if 'Magnitudo_Original' in df_anom.columns:
-            df_anom['Magnitudo'] = df_anom['Magnitudo_Original']
-        if 'Kedalaman_Original' in df_anom.columns:
-            df_anom['Kedalaman_km'] = df_anom['Kedalaman_Original']
-
+        """Save anomalies & bridge data untuk CNN dan output utama LSTM."""
         try:
-            valid = [c for c in cols if c in df_anom.columns]
-            df_anom[valid].to_csv(self.paths['anomalies'], index=False)
-            self.logger.info(f"Anomaly Report Saved: {self.paths['anomalies']}")
-        except Exception as e:
-            self.logger.error(f"Save Anomalies Failed: {e}")
+            # --- Pastikan kolom penting ada ---
+            for col, default in [('Tanggal', pd.Timestamp.now()),
+                                 ('Lokasi', 'Unknown'),
+                                 ('Magnitudo', 0.0),
+                                 ('Kedalaman_km', 0.0),
+                                 ('LSTM_Error', 0.0),
+                                 ('Temporal_Risk_Factor', 0.0),
+                                 ('Model_Uncertainty', 0.0),
+                                 ('is_Anomaly', False),
+                                 ('Context_Impact_Radius', 0.0),
+                                 ('Context_Risk_Pheromone', 0.0)]:
+                if col not in df_full.columns:
+                    df_full[col] = default
+                if col not in df_anom.columns:
+                    df_anom[col] = default
 
-        # B. Bridge ke CNN
-        bridge_cols = [
-            'Tanggal', 'Lintang', 'Bujur', 'Magnitudo', 'Kedalaman_km', 'Cluster',
-            'R_true', 'isVulkanik', 'Context_Risk_Pheromone', 'Context_Impact_Radius',
-            'Temporal_Risk_Factor', 'LSTM_Error', 'Model_Uncertainty'
-        ]
-
-        save_df = df_full.copy()
-        if 'Magnitudo_Original' in save_df.columns:
-            save_df['Magnitudo'] = save_df['Magnitudo_Original']
-        if 'Kedalaman_Original' in save_df.columns:
-            save_df['Kedalaman_km'] = save_df['Kedalaman_Original']
-
-        valid_b = [c for c in bridge_cols if c in save_df.columns]
-        try:
-            save_df[valid_b].to_excel(self.paths['bridge_cnn'], index=False)
+            # --- A. Anomalies CSV --- #
+            self.logger.info(f"Jumlah anomaly yang terdeteksi: {len(df_anom)}")
+            if len(df_anom) == 0:
+                self.logger.warning("Tidak ada anomaly ditemukan. Skip writing anomaly CSV.")
+            else:
+                cols_anom = ['Tanggal', 'Lokasi', 'Magnitudo', 'Kedalaman_km',
+                             'Temporal_Risk_Factor', 'Model_Uncertainty']
+                valid_anom_cols = [c for c in cols_anom if c in df_anom.columns]
+                df_anom[valid_anom_cols].to_csv(self.paths['anomalies'], index=False)
+                self.logger.info(f"Anomaly Report Saved: {self.paths['anomalies']}")
+            # --- B. Bridge ke CNN --- #
+            bridge_cols = [
+                'Tanggal', 'Lintang', 'Bujur', 'Magnitudo', 'Kedalaman_km', 'Cluster',
+                'R_true', 'isVulkanik', 'Context_Risk_Pheromone', 'Context_Impact_Radius',
+                'Temporal_Risk_Factor', 'LSTM_Error', 'Model_Uncertainty'
+            ]
+            valid_bridge_cols = [c for c in bridge_cols if c in df_full.columns]
+            df_full[valid_bridge_cols].to_excel(self.paths['bridge_cnn'], index=False)
             self.logger.info("Bridge Data (LSTM->CNN) Saved Successfully.")
+
+            # --- C. Main LSTM Output CSV --- #
+            export_cols = [
+                'Tanggal', 'Lokasi', 'Magnitudo', 'Kedalaman_km',
+                'LSTM_Error', 'Temporal_Risk_Factor',
+                'Model_Uncertainty', 'is_Anomaly'
+            ]
+            valid_export_cols = [c for c in export_cols if c in df_full.columns]
+            df_full[valid_export_cols].to_csv(self.paths['lstm_output'], index=False)
+            self.logger.info(f"LSTM Main Output Saved: {self.paths['lstm_output']}")
+
         except Exception as e:
-            self.logger.error(f"Save Bridge Failed: {e}")
+            self.logger.error(f"Save outputs failed: {e}")

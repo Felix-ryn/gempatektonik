@@ -30,6 +30,12 @@ EJ_MAX_LON = 114.6
 logger = logging.getLogger("GA_Titan_Engine")
 logger.setLevel(logging.DEBUG)
 
+if not logger.handlers:
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.DEBUG)
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    ch.setFormatter(formatter)
+    logger.addHandler(ch)
 # ==========================================
 # 1. MATH & PHYSICS KERNEL
 # ==========================================
@@ -54,14 +60,17 @@ class GeodesicKernel:
 
     @staticmethod
     def haversine_vectorized(lat1_arr, lon1_arr, lat2_scalar, lon2_scalar):
-        """Jarak Haversine dari banyak titik ke satu titik (vectorized)."""
-        lat1 = np.radians(lat1_arr); lon1 = np.radians(lon1_arr)
-        lat2 = math.radians(lat2_scalar); lon2 = math.radians(lon2_scalar)
-        dlat = lat2 - lat1; dlon = lon2 - lon1
-        
-        a = np.sin(dlat/2.0)**2 + np.cos(lat1) * math.cos(lat2) * np.sin(dlon/2.0)**2
+        lat1 = np.radians(lat1_arr)
+        lon1 = np.radians(lon1_arr)
+        lat2 = np.radians(lat2_scalar)
+        lon2 = np.radians(lon2_scalar)
+        dlat = lat2 - lat1
+        dlon = lon2 - lon1
+
+        a = np.sin(dlat/2.0)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon/2.0)**2
         c = 2.0 * np.arcsin(np.sqrt(np.clip(a, 0.0, 1.0)))
         return R_EARTH_KM * c
+
 
     @staticmethod
     def bearing_between(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -187,12 +196,13 @@ class PopulationIsland:
         lons = seed_df['Bujur'].values
 
         for _ in range(self.pop_size):
-            # start dari titik historis Jatim, bukan random bebas
+             # start dari titik historis Jatim, bukan random bebas (80% dari populasi)
             if np.random.rand() < 0.8 and len(lats) > 0:
                 idx = np.random.randint(len(lats))
-                s_lat = lats[idx] + np.random.normal(0, 0.05)
-                s_lon = lons[idx] + np.random.normal(0, 0.05)
+                s_lat = float(lats[idx] + np.random.normal(0, 0.05))
+                s_lon = float(lons[idx] + np.random.normal(0, 0.05))
             else:
+                # penting: fallback ke random dalam bounds kalau tidak ada titik historis
                 s_lat = np.random.uniform(self.bounds['min_lat'], self.bounds['max_lat'])
                 s_lon = np.random.uniform(self.bounds['min_lon'], self.bounds['max_lon'])
 
@@ -234,7 +244,10 @@ class PopulationIsland:
         self.population = next_gen[:self.pop_size]
 
     def _tournament_select(self, k: int = 3) -> Individual:
-        pool = np.random.choice(self.population, k)
+        n = len(self.population)
+        k = min(k, n)
+        idxs = np.random.choice(n, size=k, replace=False)
+        pool = [self.population[i] for i in idxs]
         return max(pool, key=lambda x: x.fitness)
 
     def _crossover_blend(self, p1: Individual, p2: Individual) -> Tuple[Individual, Individual]:
@@ -252,7 +265,15 @@ class PopulationIsland:
 
             c1_arr[i] = np.random.uniform(low, high)
             c2_arr[i] = np.random.uniform(low, high)
+        def clamp_vals(arr):
+            arr[0] = np.clip(arr[0], self.bounds['min_lat'], self.bounds['max_lat'])
+            arr[1] = np.clip(arr[1], self.bounds['min_lon'], self.bounds['max_lon'])
+            arr[2] = arr[2] % 360.0
+            arr[3] = max(1.0, arr[3])
+            return arr
 
+        c1_arr = clamp_vals(c1_arr)
+        c2_arr = clamp_vals(c2_arr)
         child1 = Individual(Genome(*c1_arr))
         child2 = Individual(Genome(*c2_arr))
         child1.genome.sigma = (p1.genome.sigma + p2.genome.sigma) / 2.0
@@ -272,6 +293,8 @@ class PopulationIsland:
             new_vals[1] = np.clip(new_vals[1], self.bounds['min_lon'], self.bounds['max_lon'])
             new_vals[2] = new_vals[2] % 360.0
             new_vals[3] = max(1.0, new_vals[3])
+
+            ind.genome.sigma = np.clip(ind.genome.sigma, 1e-3, 50.0)
 
             ind.genome = Genome(*new_vals)
             ind.is_evaluated = False
@@ -356,23 +379,22 @@ class GAExporter:
         return order
 
     def generate_visual_map(self, history: List[dict], context_df: pd.DataFrame):
-        # 🚨 FIX VISUALIZER: Panggil ulang file excel yang sudah difix kolomnya
-        
+    # prefer context_df (historical points) for mapping
         try:
-            df = pd.read_excel(self.paths['ga_prediction_excel']) # Membaca file yang sudah di-fix di save_trace_history
+            # optional: baca hasil GA jika ingin menampilkan chromosomal trace
+            df_ga = pd.read_excel(self.paths['ga_prediction_excel']).reset_index(drop=True)
         except Exception as e:
-            logger.error(f"Gagal memuat GA prediction Excel untuk visualisasi: {e}")
-            df = pd.DataFrame() # Fallback ke DataFrame kosong
-            history = [] # Pastikan visualisasi di skip
+            logger.debug(f"GA prediction excel not available or unreadable: {e}")
+            df_ga = pd.DataFrame()
 
-        if context_df.empty or df.empty: # Tambahkan check DF hasil GA
-            logger.warning("Context DF atau GA Trace kosong, tidak ada visual GA.")
+        if context_df is None or context_df.empty:
+            logger.warning("Context DF kosong — skip visual GA.")
             return
 
-        # Pastikan index rapi
+        # gunakan context_df sebagai sumber titik (Lintang/Bujur)
         df = context_df.reset_index(drop=True).copy()
 
-        # Urutan Snake berdasarkan NN
+        # Urutan Snake berdasarkan NN dari df (historical)
         order = self._build_nearest_neighbor_order(df)
 
         # Hitung angle & distance per segmen (untuk popup)
@@ -623,14 +645,15 @@ class GAEngine:
             logger.warning("Tidak ada data di dalam bounding Jawa Timur. Menggunakan seluruh data.")
             df_jatim = df.copy()
 
-        sig_df = df_jatim[df_jatim['Magnitudo'] >= self.mag_threshold].copy()
+        sig_df = df_jatim.copy()
         if len(sig_df) < 5:
             logger.warning("Data gempa signifikan sedikit, fallback ke semua data Jatim.")
             sig_df = df_jatim.copy()
 
         sig_df = sig_df.dropna(subset=['Magnitudo','Lintang','Bujur']).copy()
         if sig_df.empty:
-            raise ValueError("Data GA tidak valid setelah filtering Magnitudo/Lintang/Bujur (Jatim).")
+            logger.warning("[SAFE GA] Data setelah filter kosong, gunakan data asli minimal.")
+            sig_df = df.copy()
 
         # bounds dijepit ke Jawa Timur
         bounds = {
@@ -693,8 +716,9 @@ class GAEngine:
                     if global_best_ind is None or isl.best_individual.fitness > global_best_ind.fitness:
                         global_best_ind = isl.best_individual.clone()
             
-            if gen % self.migration_interval == 0:
+            if gen > 0 and gen % self.migration_interval == 0:
                 self._migrate()
+
                 
             # Record History
             if global_best_ind is not None:
@@ -704,12 +728,27 @@ class GAEngine:
                 # tidak perlu clamp di sini (biar fitnes tetap konsisten),
                 # snapping ke titik historis dilakukan di visualiser.
                 
+                sig_reset = sig_df.reset_index()  # menyimpan original index di column 'index'
+                dists_end = GeodesicKernel.haversine_vectorized(
+                    sig_reset['Lintang'].values, sig_reset['Bujur'].values, e_lat, e_lon
+                    )
+                snap_end_pos = int(np.argmin(dists_end))
+                snap_end_orig_index = int(sig_reset.loc[snap_end_pos, 'index'])
+
+                dists_start = GeodesicKernel.haversine_vectorized(
+                    sig_reset['Lintang'].values, sig_reset['Bujur'].values, g.lat, g.lon
+                )
+                snap_start_pos = int(np.argmin(dists_start))
+                snap_start_orig_index = int(sig_reset.loc[snap_start_pos, 'index'])
+
                 self.history_log.append({
-                    "Generation": gen, 
+                    "Generation": gen,
                     "Start_Lat": g.lat, "Start_Lon": g.lon,
                     "End_Lat": e_lat, "End_Lon": e_lon,
                     "Angle": g.angle, "Distance": g.dist,
-                    "Fitness": global_best_ind.fitness
+                    "Fitness": global_best_ind.fitness,
+                    "Snap_Start_Idx": snap_start_orig_index,
+                    "Snap_End_Idx": snap_end_orig_index,
                 })
             
             if (gen + 1) % 20 == 0 and global_best_ind is not None:
@@ -724,7 +763,15 @@ class GAEngine:
 
         ga_summary = None
 
-        if self.history_log:
+       
+        if not self.history_log:
+            ga_summary = {
+                "start_lat": 0, "start_lon":0,
+                "end_lat":0, "end_lon":0,
+                "angle_deg":0, "distance_km":0,
+                "fitness":0, "generation":0
+            }
+        else:
             last = self.history_log[-1]
             ga_summary = {
                 "start_lat": float(last["Start_Lat"]),
@@ -736,6 +783,7 @@ class GAEngine:
                 "fitness": float(last["Fitness"]),
                 "generation": int(last["Generation"])
             }
+
 
             summary_path = os.path.join(
                 os.path.dirname(self.output_paths["ga_vector_map"]),

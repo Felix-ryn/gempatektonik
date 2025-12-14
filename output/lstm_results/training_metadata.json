@@ -1,5 +1,5 @@
 {
-    "timestamp": "2025-12-14 20:16:36.028752",
+    "timestamp": "2025-12-14 20:36:35.726948",
     "features_used": [
         "Magnitudo_scaled",
         "Kedalaman_scaled",
@@ -16,6 +16,6 @@
         "Global_Tectonic_Stress",
         "Dist_To_GA_Pred"
     ],
-    "final_loss": 32.19174575805664,
+    "final_loss": 3.1809639930725098,
     "platform": "Windows-10-10.0.26100-SP0"
 }
