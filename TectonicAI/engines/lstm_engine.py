@@ -1,17 +1,12 @@
 ﻿"""
-TectonicAI - LSTM Engine (Titanium Edition - SAFE UPGRADE).
+TectonicAI - LSTM Engine (Titanium Edition - CLIENT REVISION).
 Module: Temporal Anomaly Detection with Transformer-LSTM Hybrid Architecture.
 
-Perbaikan utama versi ini:
-- Guard terhadap mismatch panjang array (no more operands (2091,) vs (2090,))
-- Guard ketika data sedikit atau X_full kosong (tidak crash, hanya skip anomaly)
-- Sinkronisasi panjang: valid_idx, mae_loss, risk, uncertainty, is_anomaly
-- Handling aman untuk feature importance & Monte Carlo
-
-Arsitektur tetap:
-- Hybrid Transformer Encoder + Bidirectional LSTM
-- Bayesian Monte Carlo Dropout
-- Dynamic Thresholding
+REVISI CLIENT LOG:
+1. Output Data: Menyimpan data record 2 tahun terakhir + data terbaru (termasuk 15 hari terakhir).
+2. Relation Tracking: Output CSV kini menyertakan kolom ACO (Pheromone/Radius) dan GA (Stress/Dist) 
+   untuk memvisualisasikan hubungan antar metode seperti yang diminta.
+3. Bridge Update: Menyiapkan data anomali dan historis untuk diteruskan ke CNN.
 """
 
 import pandas as pd
@@ -26,7 +21,6 @@ import platform
 import matplotlib.pyplot as plt
 from datetime import datetime
 from typing import Tuple, Dict, Any, List, Optional, Union
-from lstm_engine_module import LSTMEngine
 
 # --- IMPORT DEEP LEARNING STACK ---
 try:
@@ -53,14 +47,10 @@ except ImportError:
 def sync_len(*arrays):
     """
     Sinkronisasi panjang semua array secara aman.
-    - Tidak mengubah tipe data
-    - Hanya memangkas ke panjang minimum
-    - Jika array None → dikembalikan apa adanya
     """
     if not arrays:
         return arrays
 
-    # Ambil hanya yang bukan None dan punya len()
     effective = [a for a in arrays if a is not None]
     if not effective:
         return arrays
@@ -81,10 +71,6 @@ def sync_len(*arrays):
 # ============================================================
 
 class TransformerBlock(Layer):
-    """
-    Blok Encoder Transformer untuk Data Runtun Waktu.
-    Menggunakan self-attention untuk memahami konteks global urutan gempa.
-    """
     def __init__(self, embed_dim, num_heads, ff_dim, rate=0.1, **kwargs):
         super(TransformerBlock, self).__init__(**kwargs)
         self.embed_dim = embed_dim
@@ -146,12 +132,10 @@ class DetailedLogger(Callback):
 class LSTMEngine:
     """
     The 'Brain' of Temporal Analysis.
-
-    Pipeline:
-    1. Data Ingestion & Fusion (ACO+GA)
-    2. Hybrid Transformer + BiLSTM Training
-    3. Bayesian Inference (Monte Carlo Dropout)
-    4. Anomaly Detection & Reporting (SAFE, anti-crash)
+    Pipeline sesuai permintaan Client:
+    1. Input: Hasil ACO (Pusat/Luas) + GA (Arah/Sudut) + Data Historis.
+    2. Process: LSTM mempelajari hubungan data tersebut.
+    3. Output: Data 2 tahun terakhir, record terbaru (15 hari), dan flagging anomali.
     """
 
     def __init__(self, config: dict):
@@ -176,14 +160,18 @@ class LSTMEngine:
         # --- PATH MANAGEMENT ---
         base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../output'))
         self.paths = {
-            # INPUT
+            # INPUT (Dari ACO dan GA)
             'aco_in': os.path.join(base_path, 'aco_results/aco_zoning_data_for_lstm.xlsx'),
             'ga_in': os.path.join(base_path, 'ga_results/ga_prediction_data_for_lstm.xlsx'),
-            # OUTPUT
+            # OUTPUT (Sesuai Request Client)
             'anomalies': os.path.join(base_path, 'lstm_results/lstm_detected_anomalies.csv'),
             'bridge_cnn': os.path.join(base_path, 'lstm_results/lstm_data_for_cnn.xlsx'),
             'feature_importance': os.path.join(base_path, 'lstm_results/feature_importance.csv'),
-            'lstm_output': os.path.join(base_path, 'lstm_results/lstm_output_2years.csv'),  # ADDED
+            'lstm_output': os.path.join(base_path, 'lstm_results/lstm_output_2years.csv'),
+            # Output 15 hari
+            'recent_15_days': os.path.join(
+            base_path,
+            'lstm_results/lstm_recent_15_days.csv'),
             # ARTIFACTS
             'model_file': os.path.join(base_path, 'lstm_results/hybrid_transformer_lstm.keras'),
             'model_plot': os.path.join(base_path, 'lstm_results/model_architecture.png'),
@@ -220,43 +208,51 @@ class LSTMEngine:
             delta = timestamps.diff().dt.total_seconds().fillna(0)
             df_rich['log_delta_time'] = np.log1p(delta)
         else:
-            # fallback jika tidak ada tanggal
             df_rich['hour_sin'] = 0.0
             df_rich['hour_cos'] = 0.0
             df_rich['month_sin'] = 0.0
             df_rich['month_cos'] = 0.0
             df_rich['log_delta_time'] = 0.0
 
-        # Physics Features (Gutenberg-Richter Energy)
+        # Physics Features
         if 'Magnitudo' not in df_rich.columns:
             df_rich['Magnitudo'] = 0.0
 
         df_rich['Seismic_Energy_Log'] = 11.8 + (1.5 * df_rich['Magnitudo'])
-
-        # Benioff Strain Proxy
         df_rich['Benioff_Strain_Proxy'] = np.sqrt(np.power(10, df_rich['Seismic_Energy_Log']))
         df_rich['Log_Benioff_Strain'] = np.log1p(df_rich['Benioff_Strain_Proxy'])
 
         return df_rich
 
     def _fuse_external_intelligence(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Menyatukan output ACO dan GA ke dalam dataframe utama.
+        Termasuk perhitungan ACO–GA Relation Score.
+        """
         self.logger.info("Memulai Data Fusion (ACO + GA Context Injection)...")
         df = df.copy()
 
+        # ===============================
         # Default Context Columns
+        # ===============================
         df['Context_Risk_Pheromone'] = 0.0
         df['Context_Zone_IsRed'] = 0.0
         df['Context_Impact_Radius'] = 0.0
         df['Global_Tectonic_Stress'] = 0.5
         df['Dist_To_GA_Pred'] = 0.0
+        df['ACO_GA_Relation_Score'] = 0.0
 
+        # ===============================
         # --- ACO Fusion ---
+        # ===============================
         if os.path.exists(self.paths['aco_in']):
             try:
                 df_aco = pd.read_excel(self.paths['aco_in'])
                 min_len = min(len(df), len(df_aco))
+
                 if min_len > 0:
-                    df.loc[df.index[:min_len], 'Context_Risk_Pheromone'] = df_aco['Pheromone_Score'].values[:min_len]
+                    df.loc[df.index[:min_len], 'Context_Risk_Pheromone'] = \
+                        df_aco['Pheromone_Score'].values[:min_len]
 
                     if 'Status_Zona' in df_aco.columns:
                         is_red = df_aco['Status_Zona'].apply(
@@ -265,7 +261,8 @@ class LSTMEngine:
                         df.loc[df.index[:min_len], 'Context_Zone_IsRed'] = is_red.values[:min_len]
 
                     if 'Radius_Visual_KM' in df_aco.columns:
-                        df.loc[df.index[:min_len], 'Context_Impact_Radius'] = df_aco['Radius_Visual_KM'].values[:min_len]
+                        df.loc[df.index[:min_len], 'Context_Impact_Radius'] = \
+                            df_aco['Radius_Visual_KM'].values[:min_len]
                     elif 'Radius_Dampak_Visual_KM' in df_aco.columns:
                         df.loc[df.index[:min_len], 'Context_Impact_Radius'] = \
                             df_aco['Radius_Dampak_Visual_KM'].values[:min_len]
@@ -274,26 +271,40 @@ class LSTMEngine:
             except Exception as e:
                 self.logger.error(f"ACO Fusion Failed: {e}")
 
+        # ===============================
         # --- GA Fusion ---
+        # ===============================
         if os.path.exists(self.paths['ga_in']):
             try:
                 df_ga = pd.read_excel(self.paths['ga_in'])
                 if not df_ga.empty:
                     last_rec = df_ga.iloc[-1]
 
-                    fit_key = 'Fitness' if 'Fitness' in last_rec.index else \
-                              ('Fitness_Score' if 'Fitness_Score' in last_rec.index else None)
+                    fit_key = (
+                        'Fitness' if 'Fitness' in last_rec.index
+                        else 'Fitness_Score' if 'Fitness_Score' in last_rec.index
+                        else None
+                    )
+
                     if fit_key is not None:
                         df['Global_Tectonic_Stress'] = float(last_rec[fit_key])
 
-                    if 'Pred_Lat' in last_rec.index and 'Pred_Lon' in last_rec.index \
-                            and 'Lintang' in df.columns and 'Bujur' in df.columns:
+                    if (
+                        'Pred_Lat' in last_rec.index and
+                        'Pred_Lon' in last_rec.index and
+                        'Lintang' in df.columns and
+                        'Bujur' in df.columns
+                    ):
                         R = 6371.0
                         dlat = np.radians(df['Lintang'] - last_rec['Pred_Lat'])
                         dlon = np.radians(df['Bujur'] - last_rec['Pred_Lon'])
-                        a = np.sin(dlat / 2) ** 2 + \
-                            np.cos(np.radians(df['Lintang'])) * np.cos(np.radians(last_rec['Pred_Lat'])) * \
+
+                        a = (
+                            np.sin(dlat / 2) ** 2 +
+                            np.cos(np.radians(df['Lintang'])) *
+                            np.cos(np.radians(last_rec['Pred_Lat'])) *
                             np.sin(dlon / 2) ** 2
+                        )
                         c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
                         df['Dist_To_GA_Pred'] = R * c
 
@@ -301,13 +312,82 @@ class LSTMEngine:
             except Exception as e:
                 self.logger.error(f"GA Fusion Failed: {e}")
 
+        # ===============================
+        # --- ACO–GA Relation Score ---
+        # ===============================
+        def safe_norm(x):
+            x = np.asarray(x, dtype=np.float32)
+            min_x, max_x = np.nanmin(x), np.nanmax(x)
+            if max_x - min_x == 0:
+                return np.zeros_like(x)
+            return (x - min_x) / (max_x - min_x)
+
+        pheromone_n = safe_norm(df['Context_Risk_Pheromone'])
+        stress_n = safe_norm(df['Global_Tectonic_Stress'])
+        dist_n = safe_norm(df['Dist_To_GA_Pred'])
+
+        df['ACO_GA_Relation_Score'] = (
+            0.4 * pheromone_n +
+            0.4 * stress_n +
+            0.2 * (1.0 - dist_n)
+        )
+
+        self.logger.info("[RELATION] ACO–GA Relation Score calculated.")
+
         return df.fillna(0.0)
+
+    def _generate_relationship_narrative(self, row: pd.Series) -> str:
+        """
+        Menghasilkan narasi hubungan ACO–GA–LSTM per record.
+        Fokus: interpretasi manusia (client-friendly).
+        """
+
+        pheromone = row.get('Context_Risk_Pheromone', 0.0)
+        stress = row.get('Global_Tectonic_Stress', 0.0)
+        dist = row.get('Dist_To_GA_Pred', 0.0)
+        anomaly = row.get('is_Anomaly', False)
+        risk = row.get('Temporal_Risk_Factor', 0.0)
+
+        phrases = []
+
+        # ACO Interpretation
+        if pheromone > 0.7:
+            phrases.append("ACO menunjukkan akumulasi risiko tinggi di wilayah ini")
+        elif pheromone > 0.4:
+            phrases.append("ACO mendeteksi peningkatan aktivitas moderat")
+        else:
+            phrases.append("ACO tidak menunjukkan akumulasi risiko signifikan")
+
+        # GA Interpretation
+        if stress > 0.7:
+            phrases.append("GA mengindikasikan stress tektonik global tinggi")
+        elif stress > 0.4:
+            phrases.append("GA menunjukkan stress tektonik menengah")
+        else:
+            phrases.append("GA menunjukkan stress tektonik relatif rendah")
+
+        # Spatial Relation
+        if dist < 50:
+            phrases.append("Lokasi berada dekat dengan prediksi pusat stress GA")
+        elif dist < 150:
+            phrases.append("Lokasi berada pada radius menengah dari prediksi GA")
+        else:
+            phrases.append("Lokasi relatif jauh dari pusat prediksi GA")
+
+        # LSTM Conclusion
+        if anomaly:
+            phrases.append(
+                f"LSTM mendeteksi pola temporal menyimpang (Risk Score={risk:.2f})"
+            )
+        else:
+            phrases.append("LSTM tidak mendeteksi penyimpangan pola temporal")
+
+        return ". ".join(phrases) + "."
+
 
     def _prepare_tensor_data(self, data_values: np.ndarray, augment=False):
         """
         Membuat sequence window untuk input LSTM.
-        Output: X.shape = (N - seq_len, seq_len, feat_dim)
-                y.shape = (N - seq_len, feat_dim)
         """
         X, y = [], []
         n = len(data_values)
@@ -318,10 +398,10 @@ class LSTMEngine:
 
         for i in range(n - self.seq_length):
             seq = data_values[i:(i + self.seq_length)]
-            target = data_values[i + self.seq_length]
+            target = seq
 
             X.append(seq)
-            y.append(target)
+            y.append(seq)
 
             if augment:
                 noise = np.random.normal(0, 0.01, seq.shape)
@@ -336,10 +416,6 @@ class LSTMEngine:
     # ========================================================
 
     def _build_hybrid_model(self, input_shape: Tuple[int, int]) -> Model:
-        """
-        Transformer Encoder + BiLSTM + Dense Head.
-        input_shape = (seq_len, feat_dim)
-        """
         inputs = Input(shape=input_shape, name='time_series_input')
 
         # Transformer block
@@ -363,8 +439,13 @@ class LSTMEngine:
         x = Dense(32, activation='relu',
                   kernel_regularizer=regularizers.l2(0.001))(x)
 
-        outputs = Dense(input_shape[1], activation='linear',
-                        name='prediction_output')(x)
+        outputs = tf.keras.layers.RepeatVector(self.seq_length)(x)
+        outputs = LSTM(
+            input_shape[1],
+            return_sequences=True,
+            activation='linear'
+        )(outputs)
+
 
         model = Model(inputs=inputs, outputs=outputs, name='Hybrid_Transformer_LSTM')
 
@@ -378,10 +459,6 @@ class LSTMEngine:
     # ========================================================
 
     def _monte_carlo_prediction(self, X_data: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Monte Carlo Dropout untuk estimasi mean & uncertainty.
-        SAFE: jika X_data kosong → return array kosong, tidak crash.
-        """
         if X_data is None or len(X_data) == 0:
             self.logger.warning("MC Prediction: X_data kosong, skip Bayesian inference.")
             return np.empty((0, 0), dtype=np.float32), np.empty((0,), dtype=np.float32)
@@ -397,13 +474,11 @@ class LSTMEngine:
         pred_mean = tf.reduce_mean(stacked_preds, axis=0).numpy()
         pred_uncertainty = tf.math.reduce_std(stacked_preds, axis=0).numpy()
 
-        # uncertainty per-sample (mean over feature dim)
         uncertainty_score = np.mean(pred_uncertainty, axis=1)
 
         return pred_mean, uncertainty_score
 
     def _adaptive_thresholding(self, errors: np.ndarray, uncertainty: np.ndarray) -> np.ndarray:
-        """Threshold dinamis berbasis rolling mean/std + uncertainty."""
         if len(errors) == 0:
             return np.array([], dtype=np.float32)
 
@@ -414,7 +489,6 @@ class LSTMEngine:
 
         base_thresh = roll_mean + (self.base_threshold * roll_std)
 
-        # pad/clip uncertainty supaya sama panjang
         if len(uncertainty) < len(base_thresh):
             u = np.zeros(len(base_thresh), dtype=np.float32)
             u[:len(uncertainty)] = uncertainty
@@ -429,7 +503,6 @@ class LSTMEngine:
         return adjusted_thresh.values
 
     def _calculate_feature_importance(self, X_sample: np.ndarray, feature_names: List[str]):
-        """XAI: gradient-based feature importance (SAFE)."""
         try:
             if X_sample is None or len(X_sample) == 0 or len(feature_names) == 0:
                 return
@@ -447,7 +520,7 @@ class LSTMEngine:
             if grads is None:
                 return
 
-            saliency = tf.reduce_mean(tf.abs(grads), axis=[0, 1]).numpy()  # (feat_dim,)
+            saliency = tf.reduce_mean(tf.abs(grads), axis=[0, 1]).numpy()
             if saliency.sum() > 0:
                 saliency = saliency / saliency.sum()
 
@@ -458,39 +531,14 @@ class LSTMEngine:
             self.logger.info("Analisis Feature Importance completed.")
         except Exception as e:
             self.logger.warning(f"Feature importance gagal: {e}")
-    def update_feature_importance(self, df: pd.DataFrame):
-        """
-        Rebuild feature importance dari input terbaru.
-        Bisa dipanggil kapan saja setelah data baru tersedia.
-        """
-        df_rich = self._enrich_features(df)
-        df_fused = self._fuse_external_intelligence(df_rich)
 
-        features = [
-            'Magnitudo_scaled', 'Kedalaman_scaled',
-            'rolling_mag_mean_scaled', 'rolling_event_count_scaled',
-            'Time_Delta_Hours_scaled', 'Dist_Delta_KM_scaled',
-            'hour_sin', 'hour_cos', 'month_sin', 'month_cos',
-            'Context_Risk_Pheromone', 'Context_Zone_IsRed',
-            'Global_Tectonic_Stress', 'Dist_To_GA_Pred'
-        ]
-
-        final_features = [f for f in features if f in df_fused.columns]
-        if len(final_features) == 0:
-            self.logger.warning("Tidak ada fitur valid untuk feature importance. Skip update.")
-            return
-
-        data_values = df_fused[final_features].astype(float).values
-        self._calculate_feature_importance(data_values, final_features)
-        self.logger.info("Feature importance updated successfully.")
     # ========================================================
     # 4. MAIN RUN PIPELINE (SAFE)
     # ========================================================
 
     def run(self, df: pd.DataFrame, train_df: pd.DataFrame):
         """
-        Orchestrate full LSTM pipeline.
-        SAFE: tidak akan memunculkan broadcast error karena semua panjang disinkronkan.
+        Main Execution Pipeline.
         """
         if not HAS_TF:
             self.logger.critical("TensorFlow Missing. Abort LSTM Engine.")
@@ -499,23 +547,27 @@ class LSTMEngine:
                 df_out[col] = 0.0 if col != 'is_Anomaly' else False
             return df_out, {"anomalies": df_out.iloc[0:0].copy()}
 
-        # === FILTER 2 TAHUN TERAKHIR (WAJIB UNTUK OUTPUT) ===
+        # === REVISI: FILTER 2 TAHUN TERAKHIR (Tapi tetap simpan data terbaru 15 hari) ===
+        # Logika ini memastikan bahwa jika ada data baru masuk hari ini, dia akan termasuk 
+        # dalam range '>= cutoff_date'.
+        cutoff_date = None
+
         if 'Tanggal' in df.columns:
             df['Tanggal'] = pd.to_datetime(df['Tanggal'], errors='coerce')
             cutoff_date = df['Tanggal'].max() - pd.DateOffset(years=2)
             df = df[df['Tanggal'] >= cutoff_date].reset_index(drop=True)
 
-        if 'Tanggal' in train_df.columns:
+        if cutoff_date is not None and 'Tanggal' in train_df.columns:
             train_df['Tanggal'] = pd.to_datetime(train_df['Tanggal'], errors='coerce')
             train_df = train_df[train_df['Tanggal'] >= cutoff_date].reset_index(drop=True)
-
+        
         start_time = time.time()
         self.logger.info("=== STARTING HYBRID TRANSFORMER-LSTM ENGINE (SAFE) ===")
 
-        # --- STEP 1: Data Prep & Fusion --- #
+        # --- STEP 1: Data Prep & Fusion (ACO + GA) --- #
         df_base = df.copy()
         df_rich = self._enrich_features(df_base)
-        df_fused = self._fuse_external_intelligence(df_rich)
+        df_fused = self._fuse_external_intelligence(df_rich) # Disini ACO & GA masuk
 
         # Feature list
         features = [
@@ -523,11 +575,10 @@ class LSTMEngine:
             'rolling_mag_mean_scaled', 'rolling_event_count_scaled',
             'Time_Delta_Hours_scaled', 'Dist_Delta_KM_scaled',
             'hour_sin', 'hour_cos', 'month_sin', 'month_cos',
-            'Context_Risk_Pheromone', 'Context_Zone_IsRed',
-            'Global_Tectonic_Stress', 'Dist_To_GA_Pred'
+            'Context_Risk_Pheromone', 'Context_Zone_IsRed', # Input ACO
+            'Global_Tectonic_Stress', 'Dist_To_GA_Pred'     # Input GA
         ]
 
-        # Memastikan fitur yang sebenarnya ada di DataFrame
         final_features = []
         for f in features:
             if f in df_fused.columns:
@@ -548,25 +599,19 @@ class LSTMEngine:
         n_samples, feat_dim = data_values.shape
 
         if n_samples <= self.seq_length:
-            self.logger.warning(
-                f"Data terlalu sedikit untuk sequence (N={n_samples}, seq_len={self.seq_length}). LSTM skip anomaly detection."
-            )
+            self.logger.warning("Data terlalu sedikit. Skip processing.")
             df_out = df.copy()
             df_out['is_Anomaly'] = False
-            df_out['Temporal_Risk_Factor'] = 0.0
-            df_out['Model_Uncertainty'] = 0.0
-            df_out['LSTM_Error'] = 0.0
             self._save_outputs(df_out, df_out.iloc[0:0].copy())
             return df_out, {"anomalies": df_out.iloc[0:0].copy()}
 
         # --- STEP 2: Train Data Build --- #
-        train_len = min(len(train_df), n_samples)
-        train_data = data_values[:train_len]
-        X_train, y_train = self._prepare_tensor_data(train_data, augment=True)
+        train_values = train_df[final_features].astype(float).values
+        X_train, y_train = self._prepare_tensor_data(train_values, augment=True)
         input_shape = (self.seq_length, feat_dim)
 
-        # --- STEP 3: Model Management (Auto-Healing) --- #
-        force_retrain = True
+        # --- STEP 3: Model Check --- #
+        force_retrain = False
         if os.path.exists(self.paths['model_file']):
             try:
                 temp_model = load_model(
@@ -575,20 +620,15 @@ class LSTMEngine:
                 )
                 if temp_model.input_shape[1:] == input_shape:
                     self.model = temp_model
-                    self.logger.info("✅ Valid existing model found. Proceeding with Incremental Learning.")
+                    self.logger.info("✅ Valid existing model found.")
                     force_retrain = False
                 else:
-                    self.logger.warning(f"⚠️ Model shape mismatch ({temp_model.input_shape} vs {input_shape}). Forcing re-train.")
-            except Exception as e:
-                self.logger.warning(f"Model load failed ({e}). Forcing re-train.")
-
-        if force_retrain or self.model is None:
-            self.logger.info("Building new Hybrid Transformer-LSTM Architecture...")
-            self.model = self._build_hybrid_model(input_shape)
-            try:
-                plot_model(self.model, to_file=self.paths['model_plot'], show_shapes=True)
+                    self.logger.warning("⚠️ Model shape mismatch. Forcing re-train.")
             except Exception:
                 pass
+
+        if force_retrain or self.model is None:
+            self.model = self._build_hybrid_model(input_shape)
 
         # --- STEP 4: Training Phase --- #
         if len(X_train) > 20:
@@ -599,108 +639,90 @@ class LSTMEngine:
                 CSVLogger(os.path.join(self.paths['logs_dir'], 'training.log'), append=True),
                 DetailedLogger(self.logger)
             ]
-            self.logger.info(f"Training on {len(X_train)} sequences...")
-            history = self.model.fit(
-                X_train, y_train,
-                epochs=self.epochs,
-                batch_size=32,
-                validation_split=0.2,
-                callbacks=cb,
-                verbose=0
-            )
-            self._plot_loss(history)
-
-            meta = {
-                "timestamp": str(datetime.now()),
-                "features_used": features,
-                "final_loss": float(history.history['loss'][-1]),
-                "platform": platform.platform()
-            }
-            with open(self.paths['metadata'], 'w') as f:
-                json.dump(meta, f, indent=4)
-        else:
-            self.logger.warning(f"Jumlah sequence train terlalu kecil ({len(X_train)}). Model tidak di-train ulang.")
-
-        # --- STEP 5: Full Inference & Anomaly Detection --- #
+            self.model.fit(X_train, y_train, epochs=self.epochs, batch_size=32, validation_split=0.2, callbacks=cb, verbose=0)
+        
+        # --- STEP 5: Full Inference (Termasuk data 15 hari terakhir) --- #
         X_full, y_full = self._prepare_tensor_data(data_values, augment=False)
-        if len(X_full) == 0:
-            self.logger.warning("X_full kosong. Skip anomaly detection.")
+        
+        if len(X_full) > 0:
+            try:
+                self._calculate_feature_importance(X_full, final_features)
+            except Exception:
+                pass
+
+            self.logger.info("Running Bayesian Inference (Monte Carlo)...")
+            pred_mean, uncertainty = self._monte_carlo_prediction(X_full)
+
+            recon_error = np.mean(
+                np.abs(pred_mean - X_full),
+                axis=(1, 2)
+            )
+
+            thresholds = self._adaptive_thresholding(recon_error, uncertainty)
+            valid_idx = np.arange(self.seq_length, self.seq_length + len(recon_error))
+
+            recon_error, thresholds, uncertainty, valid_idx = sync_len(
+                recon_error, thresholds, uncertainty, valid_idx
+            )
+
+            is_anomaly = recon_error > thresholds
+            risk = np.clip((recon_error - thresholds) / (thresholds + 1e-9), 0, None)
+
+            # Sync again just in case
+            mae_loss, risk, is_anomaly, thresholds, uncertainty, valid_idx = sync_len(
+                mae_loss, risk, is_anomaly, thresholds, uncertainty, valid_idx
+            )
+
             df_out = df.copy()
             df_out['is_Anomaly'] = False
             df_out['Temporal_Risk_Factor'] = 0.0
             df_out['Model_Uncertainty'] = 0.0
             df_out['LSTM_Error'] = 0.0
-            self._save_outputs(df_out, df_out.iloc[0:0].copy())
-            return df_out, {"anomalies": df_out.iloc[0:0].copy()}
 
-        try:
-            self._calculate_feature_importance(X_full, features)
-        except Exception:
-            pass
+            if len(valid_idx) > 0:
+                df_out.loc[valid_idx, 'is_Anomaly'] = is_anomaly
+                df_out.loc[valid_idx, 'Temporal_Risk_Factor'] = risk
+                df_out.loc[valid_idx, 'Model_Uncertainty'] = uncertainty
+                df_out.loc[valid_idx, 'LSTM_Error'] = mae_loss
 
-        self.logger.info("Running Bayesian Inference (Monte Carlo)...")
-        pred_mean, uncertainty = self._monte_carlo_prediction(X_full)
+            # PENTING: Masukkan kembali data ACO & GA ke df_out agar bisa diexport
+            for col in ['Context_Impact_Radius', 'Context_Risk_Pheromone', 'Context_Zone_IsRed', 
+                        'Global_Tectonic_Stress', 'Dist_To_GA_Pred']:
+                if col in df_fused.columns:
+                    df_out[col] = df_fused[col]
 
-        if pred_mean.size == 0:
-            self.logger.warning("Prediksi MC kosong. Skip anomaly detection.")
-            df_out = df.copy()
-            df_out['is_Anomaly'] = False
-            df_out['Temporal_Risk_Factor'] = 0.0
-            df_out['Model_Uncertainty'] = 0.0
-            df_out['LSTM_Error'] = 0.0
-            self._save_outputs(df_out, df_out.iloc[0:0].copy())
-            return df_out, {"anomalies": df_out.iloc[0:0].copy()}
+            anomalies = df_out[df_out['is_Anomaly']].copy()
+            self._save_outputs(df_out, anomalies)
+            
+            self.logger.info(f"LSTM Engine Completed. Found {len(anomalies)} anomalies.")
+            return df_out, {"anomalies": anomalies}
+        
+        else:
+            return df, {"anomalies": df.iloc[0:0]}
 
-        mae_loss = np.mean(np.abs(pred_mean - y_full), axis=1)
-        thresholds = self._adaptive_thresholding(mae_loss, uncertainty)
+        metadata = {
+            "model_name": "Hybrid Transformer-LSTM",
+            "role": "Temporal Relation & Anomaly Analyzer",
+            "input_sources": ["Historical Seismic", "ACO", "GA"],
+            "explicitly_not_used_for": ["Direction Prediction", "Angle Prediction"],
+            "client_logic": {
+                "ACO": "Menentukan pusat & luas terdampak",
+                "GA": "Memberikan stress & arah referensi",
+                "LSTM": "Menyimpan memori temporal dan hubungan ACO-GA"
+            },
+            "generated_at": datetime.now().isoformat()
+        }
 
-        valid_idx = np.array(df.index[self.seq_length:])
-        mae_loss, thresholds, uncertainty, valid_idx = sync_len(mae_loss, thresholds, uncertainty, valid_idx)
+        with open(self.paths['metadata'], 'w') as f:
+            json.dump(metadata, f, indent=4)
 
-        if len(mae_loss) == 0:
-            self.logger.warning("Tidak ada sample valid untuk anomaly mapping.")
-            df_out = df.copy()
-            df_out['is_Anomaly'] = False
-            df_out['Temporal_Risk_Factor'] = 0.0
-            df_out['Model_Uncertainty'] = 0.0
-            df_out['LSTM_Error'] = 0.0
-            self._save_outputs(df_out, df_out.iloc[0:0].copy())
-            return df_out, {"anomalies": df_out.iloc[0:0].copy()}
-
-        is_anomaly = mae_loss > thresholds
-        risk = np.clip((mae_loss - thresholds) / (thresholds + 1e-9), 0, None)
-        mae_loss, risk, is_anomaly, thresholds, uncertainty, valid_idx = sync_len(
-            mae_loss, risk, is_anomaly, thresholds, uncertainty, valid_idx
-        )
-        self.logger.info(f"Valid indices for anomalies: {valid_idx}")
-        if len(valid_idx) == 0:
-            self.logger.warning("Tidak ada data valid untuk mapping anomaly. CSV akan berisi header saja.")
-
-        df_out = df.copy()
-        df_out['is_Anomaly'] = False
-        df_out['Temporal_Risk_Factor'] = 0.0
-        df_out['Model_Uncertainty'] = 0.0
-        df_out['LSTM_Error'] = 0.0
-
-        df_out.loc[valid_idx, 'is_Anomaly'] = is_anomaly
-        df_out.loc[valid_idx, 'Temporal_Risk_Factor'] = risk
-        df_out.loc[valid_idx, 'Model_Uncertainty'] = uncertainty
-        df_out.loc[valid_idx, 'LSTM_Error'] = mae_loss
-
-        for col in ['Context_Impact_Radius', 'Context_Risk_Pheromone']:
-            if col in df_fused.columns:
-                df_out[col] = df_fused[col]
-
-        anomalies = df_out[df_out['is_Anomaly']].copy()
-        self._save_outputs(df_out, anomalies)
-
-        duration = time.time() - start_time
-        self.logger.info(f"LSTM Engine Completed in {duration:.2f}s. Found {len(anomalies)} anomalies.")
+        self.logger.info("Metadata saved successfully.")
 
         return df_out, {"anomalies": anomalies}
 
+
     # ========================================================
-    # 5. PLOTTING & SAVING
+    # 5. PLOTTING & SAVING (REVISED)
     # ========================================================
 
     def _plot_loss(self, history):
@@ -719,9 +741,13 @@ class LSTMEngine:
             self.logger.warning(f"Plot loss gagal: {e}")
 
     def _save_outputs(self, df_full, df_anom):
-        """Save anomalies & bridge data untuk CNN dan output utama LSTM."""
+        """
+        REVISI: Menyimpan output sesuai request client.
+        Isi: Data 2 tahun terakhir, data terbaru (termasuk 15 hari), anomaly.
+        Columns: Wajib ada kolom dari ACO dan GA.
+        """
         try:
-            # --- Pastikan kolom penting ada ---
+            # --- Pastikan kolom penting ada (Fill Default) ---
             for col, default in [('Tanggal', pd.Timestamp.now()),
                                  ('Lokasi', 'Unknown'),
                                  ('Magnitudo', 0.0),
@@ -730,42 +756,133 @@ class LSTMEngine:
                                  ('Temporal_Risk_Factor', 0.0),
                                  ('Model_Uncertainty', 0.0),
                                  ('is_Anomaly', False),
-                                 ('Context_Impact_Radius', 0.0),
-                                 ('Context_Risk_Pheromone', 0.0)]:
+                                 ('Context_Impact_Radius', 0.0), # Output ACO
+                                 ('Context_Risk_Pheromone', 0.0), # Output ACO
+                                 ('Global_Tectonic_Stress', 0.0), # Output GA
+                                 ('Dist_To_GA_Pred', 0.0)]:       # Output GA
                 if col not in df_full.columns:
                     df_full[col] = default
                 if col not in df_anom.columns:
                     df_anom[col] = default
 
-            # --- A. Anomalies CSV --- #
-            self.logger.info(f"Jumlah anomaly yang terdeteksi: {len(df_anom)}")
-            if len(df_anom) == 0:
-                self.logger.warning("Tidak ada anomaly ditemukan. Skip writing anomaly CSV.")
-            else:
+            # --- A. Anomalies CSV (Untuk Laporan Cepat) ---
+            if not df_anom.empty:
+                # Menambahkan konteks ACO/GA di report anomali juga
                 cols_anom = ['Tanggal', 'Lokasi', 'Magnitudo', 'Kedalaman_km',
-                             'Temporal_Risk_Factor', 'Model_Uncertainty']
+                             'Temporal_Risk_Factor', 'Model_Uncertainty', 
+                             'Context_Risk_Pheromone', 'Global_Tectonic_Stress']
                 valid_anom_cols = [c for c in cols_anom if c in df_anom.columns]
                 df_anom[valid_anom_cols].to_csv(self.paths['anomalies'], index=False)
-                self.logger.info(f"Anomaly Report Saved: {self.paths['anomalies']}")
-            # --- B. Bridge ke CNN --- #
+                self.logger.info(f"Anomaly Report Saved ({len(df_anom)} events).")
+
+            # --- B. Bridge ke CNN (PENTING untuk Prediksi Arah/Sudut) ---
+            # CNN butuh data historis + anomali untuk memprediksi gempa berikutnya.
             bridge_cols = [
-                'Tanggal', 'Lintang', 'Bujur', 'Magnitudo', 'Kedalaman_km', 'Cluster',
-                'R_true', 'isVulkanik', 'Context_Risk_Pheromone', 'Context_Impact_Radius',
-                'Temporal_Risk_Factor', 'LSTM_Error', 'Model_Uncertainty'
+                'Tanggal', 'Lintang', 'Bujur', 'Magnitudo', 'Kedalaman_km', 
+                'Context_Risk_Pheromone', 'Context_Impact_Radius', # Dari ACO
+                'Global_Tectonic_Stress', 'Dist_To_GA_Pred',       # Dari GA
+                'Temporal_Risk_Factor', 'LSTM_Error', 'is_Anomaly'
             ]
             valid_bridge_cols = [c for c in bridge_cols if c in df_full.columns]
             df_full[valid_bridge_cols].to_excel(self.paths['bridge_cnn'], index=False)
             self.logger.info("Bridge Data (LSTM->CNN) Saved Successfully.")
 
-            # --- C. Main LSTM Output CSV --- #
+            def build_narrative(row):
+                pheromone = row.get('Context_Risk_Pheromone', 0.0)
+                stress = row.get('Global_Tectonic_Stress', 0.0)
+                dist = row.get('Dist_To_GA_Pred', 0.0)
+                anomaly = row.get('is_Anomaly', False)
+                risk = row.get('Temporal_Risk_Factor', 0.0)
+
+                narrative = []
+
+                # ACO
+                if pheromone > 0.7:
+                    narrative.append("ACO mendeteksi akumulasi risiko tinggi di wilayah ini")
+                elif pheromone > 0.4:
+                    narrative.append("ACO menunjukkan peningkatan risiko sedang")
+                else:
+                    narrative.append("ACO tidak menunjukkan akumulasi risiko signifikan")
+
+                # GA
+                if stress > 0.7:
+                    narrative.append("GA mengindikasikan stress tektonik global tinggi")
+                elif stress > 0.4:
+                    narrative.append("GA menunjukkan stress tektonik menengah")
+                else:
+                    narrative.append("GA menunjukkan stress tektonik relatif rendah")
+
+                # Spatial Relation
+                if dist < 50:
+                    narrative.append("Lokasi sangat dekat dengan pusat prediksi stress GA")
+                elif dist < 150:
+                    narrative.append("Lokasi berada pada radius menengah dari prediksi GA")
+                else:
+                    narrative.append("Lokasi relatif jauh dari pusat prediksi GA")
+
+                # LSTM
+                if anomaly:
+                    narrative.append(
+                        f"LSTM mendeteksi pola temporal menyimpang (Risk Score={risk:.2f})"
+                    )
+                else:
+                    narrative.append("LSTM tidak mendeteksi penyimpangan pola temporal")
+
+                return ". ".join(narrative) + "."
+
+            # --- HUBUNGKAN NARASI KE DATAFRAME ---
+            df_full['Relationship_Narrative'] = df_full.apply(build_narrative, axis=1)
+
+            if not df_anom.empty:
+                df_anom['Relationship_Narrative'] = df_anom.apply(build_narrative, axis=1)
+
+            # --- C. Main LSTM Output CSV (Sesuai Request Client) ---
+            # "Output LSTM data cvs yg isinya data 2 thn terakhir, record data terbaru, data anomali"
+            # Client juga minta: "lstm buat mengetahui hubungan aco sama ga" -> Maka kolomnya harus ditampilkan.
             export_cols = [
                 'Tanggal', 'Lokasi', 'Magnitudo', 'Kedalaman_km',
-                'LSTM_Error', 'Temporal_Risk_Factor',
-                'Model_Uncertainty', 'is_Anomaly'
+                'LSTM_Error', 'Temporal_Risk_Factor', 'Model_Uncertainty', 'is_Anomaly',
+                'Context_Risk_Pheromone', 'Context_Impact_Radius', # Bukti Hubungan ACO
+                'Global_Tectonic_Stress', 'Dist_To_GA_Pred', 'Relationship_Narrative'        # Bukti Hubungan GA
             ]
             valid_export_cols = [c for c in export_cols if c in df_full.columns]
-            df_full[valid_export_cols].to_csv(self.paths['lstm_output'], index=False)
-            self.logger.info(f"LSTM Main Output Saved: {self.paths['lstm_output']}")
+            
+            # Sort by Tanggal descending (Data terbaru paling atas) biar mudah dicek client
+            df_export = df_full[valid_export_cols].sort_values('Tanggal', ascending=False)
+            df_export.to_csv(self.paths['lstm_output'], index=False)
+            self.logger.info(f"LSTM Main Output Saved (2 Years + Recent Data): {self.paths['lstm_output']}")
+
+            # --- D. EXPORT DATA 15 HARI TERAKHIR (REQUEST CLIENT) ---
+            if 'Tanggal' in df_full.columns:
+                try:
+                    df_full['Tanggal'] = pd.to_datetime(df_full['Tanggal'], errors='coerce')
+
+                    latest_date = df_full['Tanggal'].max()
+                    cutoff_15 = latest_date - pd.Timedelta(days=15)
+
+                    df_15_days = df_full[df_full['Tanggal'] >= cutoff_15].copy()
+
+                    if not df_15_days.empty:
+                        export_15_cols = [
+                            'Tanggal', 'Lokasi', 'Magnitudo', 'Kedalaman_km',
+                            'LSTM_Error', 'Temporal_Risk_Factor', 'Model_Uncertainty', 'is_Anomaly',
+                            'Context_Risk_Pheromone', 'Context_Impact_Radius',
+                            'Global_Tectonic_Stress', 'Dist_To_GA_Pred',
+                            'ACO_GA_Relation_Score'
+                        ]
+
+                        valid_15_cols = [c for c in export_15_cols if c in df_15_days.columns]
+
+                        df_15_days = df_15_days[valid_15_cols] \
+                            .sort_values('Tanggal', ascending=False)
+
+                        df_15_days.to_csv(self.paths['recent_15_days'], index=False)
+
+                        self.logger.info(
+                            f"Recent 15 Days Data Saved ({len(df_15_days)} records)."
+                        )
+                except Exception as e:
+                    self.logger.warning(f"Export 15 days data failed: {e}")
 
         except Exception as e:
             self.logger.error(f"Save outputs failed: {e}")

@@ -17,7 +17,7 @@
             <meta name="viewport" content="width=device-width,
                 initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
             <style>
-                #map_03e81bf0ee5b5e477b455f5e9dde6581 {
+                #map_172fa6663fa83097c33033f1729e7185 {
                     position: relative;
                     width: 100.0%;
                     height: 100.0%;
@@ -57,21 +57,21 @@
     <div style='position: fixed; top: 10px; right: 10px; z-index: 9999; background: #272727; color: white; padding: 10px; border-radius: 5px; opacity: 0.9;'>
         <h4>RISIKO STRATEGIS LIVE</h4>
         <hr style='margin: 5px 0; border-color: #555;'>
-        <b>Final Prob:</b> <span style='color:#27ae60;'><b>0.0%</b></span><br>
+        <b>Final Prob:</b> <span style='color:#27ae60;'><b>2.3%</b></span><br>
         <b>LSTM Anomaly:</b> NORMAL<br>
-        <b>CNN Impact:</b> 0.00%<br>
+        <b>CNN Impact:</b> 92.15%<br>
         <b>Zonasi ACO:</b> Aman
     </div>
     
     
-            <div class="folium-map" id="map_03e81bf0ee5b5e477b455f5e9dde6581" ></div>
+            <div class="folium-map" id="map_172fa6663fa83097c33033f1729e7185" ></div>
         
 </body>
 <script>
     
     
-            var map_03e81bf0ee5b5e477b455f5e9dde6581 = L.map(
-                "map_03e81bf0ee5b5e477b455f5e9dde6581",
+            var map_172fa6663fa83097c33033f1729e7185 = L.map(
+                "map_172fa6663fa83097c33033f1729e7185",
                 {
                     center: [-9.35, 111.85],
                     crs: L.CRS.EPSG3857,
@@ -88,7 +88,7 @@
 
         
     
-            var tile_layer_7bf0ad9cb0d93ff344b99f7932a8e77e = L.tileLayer(
+            var tile_layer_b5de6487088af0850976ece050bd7808 = L.tileLayer(
                 "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
                 {
   "minZoom": 0,
@@ -105,17 +105,17 @@
             );
         
     
-            tile_layer_7bf0ad9cb0d93ff344b99f7932a8e77e.addTo(map_03e81bf0ee5b5e477b455f5e9dde6581);
+            tile_layer_b5de6487088af0850976ece050bd7808.addTo(map_172fa6663fa83097c33033f1729e7185);
         
     
-            var marker_0b9e5d8e423fd37db734ffcdf51a4d75 = L.marker(
+            var marker_e90b90d89d9731eb868beb4db7fa635b = L.marker(
                 [-9.35, 111.85],
                 {
 }
-            ).addTo(map_03e81bf0ee5b5e477b455f5e9dde6581);
+            ).addTo(map_172fa6663fa83097c33033f1729e7185);
         
     
-            var icon_e1306ecc67d4ea2caf270f470dd0561d = L.AwesomeMarkers.icon(
+            var icon_acb1e72332e55781646064402b1af8e5 = L.AwesomeMarkers.icon(
                 {
   "markerColor": "blue",
   "iconColor": "white",
@@ -126,24 +126,24 @@
             );
         
     
-        var popup_da12f77cc96ee51c1017c5ac9b0508f5 = L.popup({
+        var popup_826fe3177b52df82baae2c9b930c7fe5 = L.popup({
   "maxWidth": "100%",
 });
 
         
             
-                var html_472fe64c5a0bb336ef233086392d08bd = $(`<div id="html_472fe64c5a0bb336ef233086392d08bd" style="width: 100.0%; height: 100.0%;">     <b>LIVE EVENT:</b> 141 km BaratDaya KAB-BLITAR-JATIM<br>     M 5.20 (10.0 km)<br>     ---     <b>RISIKO FINAL:</b> <span style="color:#27ae60;"><b>0.0%</b></span><br>     <b>LSTM:</b> NORMAL     </div>`)[0];
-                popup_da12f77cc96ee51c1017c5ac9b0508f5.setContent(html_472fe64c5a0bb336ef233086392d08bd);
+                var html_83b35eb562336f024954406944536f83 = $(`<div id="html_83b35eb562336f024954406944536f83" style="width: 100.0%; height: 100.0%;">     <b>LIVE EVENT:</b> 141 km BaratDaya KAB-BLITAR-JATIM<br>     M 5.20 (10.0 km)<br>     ---     <b>RISIKO FINAL:</b> <span style="color:#27ae60;"><b>2.3%</b></span><br>     <b>LSTM:</b> NORMAL     </div>`)[0];
+                popup_826fe3177b52df82baae2c9b930c7fe5.setContent(html_83b35eb562336f024954406944536f83);
             
         
 
-        marker_0b9e5d8e423fd37db734ffcdf51a4d75.bindPopup(popup_da12f77cc96ee51c1017c5ac9b0508f5)
+        marker_e90b90d89d9731eb868beb4db7fa635b.bindPopup(popup_826fe3177b52df82baae2c9b930c7fe5)
         ;
 
         
     
     
-            marker_0b9e5d8e423fd37db734ffcdf51a4d75.bindTooltip(
+            marker_e90b90d89d9731eb868beb4db7fa635b.bindTooltip(
                 `<div>
                      TITIK KEJADIAN TERBARU (INPUT)
                  </div>`,
@@ -153,16 +153,16 @@
             );
         
     
-                marker_0b9e5d8e423fd37db734ffcdf51a4d75.setIcon(icon_e1306ecc67d4ea2caf270f470dd0561d);
+                marker_e90b90d89d9731eb868beb4db7fa635b.setIcon(icon_acb1e72332e55781646064402b1af8e5);
             
     
-            var circle_75da4738ae9a9eaa528e5d62c18a6421 = L.circle(
+            var circle_bc1511540d1819e93a14f63e27820e53 = L.circle(
                 [-9.35, 111.85],
                 {"bubblingMouseEvents": true, "color": "#27ae60", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#27ae60", "fillOpacity": 0.4, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 15000.0, "stroke": true, "weight": 2}
-            ).addTo(map_03e81bf0ee5b5e477b455f5e9dde6581);
+            ).addTo(map_172fa6663fa83097c33033f1729e7185);
         
     
-            circle_75da4738ae9a9eaa528e5d62c18a6421.bindTooltip(
+            circle_bc1511540d1819e93a14f63e27820e53.bindTooltip(
                 `<div>
                      AREA RISIKO (Radius 15.0 km)
                  </div>`,
@@ -172,15 +172,15 @@
             );
         
     
-            var poly_line_76887ef6114fff64e91419581eecaf9d = L.polyline(
-                [[-9.35, 111.85], [-9.364431349270463, 111.84111245888762]],
+            var poly_line_d2091c1df68cf2f2c44f04e12bde544e = L.polyline(
+                [[-9.35, 111.85], [-9.35872110484945, 111.84776269460349]],
                 {"bubblingMouseEvents": true, "color": "#00ffff", "dashArray": "5, 5", "dashOffset": null, "fill": false, "fillColor": "#00ffff", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "noClip": false, "opacity": 1.0, "smoothFactor": 1.0, "stroke": true, "weight": 4}
-            ).addTo(map_03e81bf0ee5b5e477b455f5e9dde6581);
+            ).addTo(map_172fa6663fa83097c33033f1729e7185);
         
     
-            poly_line_76887ef6114fff64e91419581eecaf9d.bindTooltip(
+            poly_line_d2091c1df68cf2f2c44f04e12bde544e.bindTooltip(
                 `<div>
-                     Vektor Prediksi GA: 1.9 km @ 211.3°
+                     Vektor Prediksi GA: 1.0 km @ 194.2°
                  </div>`,
                 {
   "sticky": true,
@@ -188,13 +188,13 @@
             );
         
     
-            var circle_marker_0211ebf1e227918307260d72ce95a453 = L.circleMarker(
-                [-9.364431349270463, 111.84111245888762],
+            var circle_marker_f9b02d8a5883c6427daa92a273cc4ae1 = L.circleMarker(
+                [-9.35872110484945, 111.84776269460349],
                 {"bubblingMouseEvents": true, "color": "#00ffff", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#00ffff", "fillOpacity": 0.2, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 6, "stroke": true, "weight": 3}
-            ).addTo(map_03e81bf0ee5b5e477b455f5e9dde6581);
+            ).addTo(map_172fa6663fa83097c33033f1729e7185);
         
     
-            circle_marker_0211ebf1e227918307260d72ce95a453.bindTooltip(
+            circle_marker_f9b02d8a5883c6427daa92a273cc4ae1.bindTooltip(
                 `<div>
                      TITIK PREDIKSI BERIKUTNYA (GA)
                  </div>`,

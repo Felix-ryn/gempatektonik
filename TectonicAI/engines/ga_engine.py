@@ -91,7 +91,7 @@ class GeodesicKernel:
         ) * math.cos(dlon)
         brng = math.degrees(math.atan2(y, x))
         return (brng + 360.0) % 360.0
-
+    
 
 # ==========================================
 # 2. EVOLUTIONARY DATA STRUCTURES
@@ -560,12 +560,9 @@ class GAExporter:
             # start juga bisa di-snap dari genome GA (paling dekat)
             raw_start_lat = last["Start_Lat"]
             raw_start_lon = last["Start_Lon"]
-            dists_start = GeodesicKernel.haversine_vectorized(
-                coords_lat, coords_lon, raw_start_lat, raw_start_lon
-            )
-            snap_s_idx = int(np.argmin(dists_start))
-            snap_start_lat = float(coords_lat[snap_s_idx])
-            snap_start_lon = float(coords_lon[snap_s_idx])
+
+            snap_start_lat = raw_start_lat
+            snap_start_lon = raw_start_lon
 
             final_layer = folium.FeatureGroup(name="Prediksi Final")
 

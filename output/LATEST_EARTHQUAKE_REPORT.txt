@@ -1,6 +1,6 @@
 
 ========================= TECTONIC AI REPORT =========================
-Waktu Pemrosesan: 2025-12-14 22:43:40
+Waktu Pemrosesan: 2025-12-15 15:04:23
 Tanggal Gp    : 2025-11-24 03:40:21
 Lokasi        : 141 km BaratDaya KAB-BLITAR-JATIM
 Magnitude     : 5.20
@@ -8,6 +8,6 @@ Kedalaman     : 10.0 km
 
 Zonasi ACO    : Aman
 LSTM          : NORMAL
-CNN Impact    : 0.00 %
-Final Prob    : 0.0 %
+CNN Impact    : 92.15 %
+Final Prob    : 2.3 %
 ======================================================================
