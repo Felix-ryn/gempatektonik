@@ -1,21 +1,19 @@
 {
-    "timestamp": "2025-12-14 20:36:35.726948",
-    "features_used": [
-        "Magnitudo_scaled",
-        "Kedalaman_scaled",
-        "rolling_mag_mean_scaled",
-        "rolling_event_count_scaled",
-        "Time_Delta_Hours_scaled",
-        "Dist_Delta_KM_scaled",
-        "hour_sin",
-        "hour_cos",
-        "month_sin",
-        "month_cos",
-        "Context_Risk_Pheromone",
-        "Context_Zone_IsRed",
-        "Global_Tectonic_Stress",
-        "Dist_To_GA_Pred"
+    "model_name": "Hybrid Transformer-LSTM",
+    "role": "Temporal Relation & Anomaly Analyzer",
+    "input_sources": [
+        "Historical Seismic",
+        "ACO",
+        "GA"
     ],
-    "final_loss": 3.1809639930725098,
-    "platform": "Windows-10-10.0.26100-SP0"
+    "explicitly_not_used_for": [
+        "Direction Prediction",
+        "Angle Prediction"
+    ],
+    "client_logic": {
+        "ACO": "Menentukan pusat & luas terdampak",
+        "GA": "Memberikan stress & arah referensi",
+        "LSTM": "Menyimpan memori temporal dan hubungan ACO-GA"
+    },
+    "generated_at": "2025-12-15T22:55:17.925393"
 }

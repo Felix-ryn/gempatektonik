@@ -848,6 +848,21 @@ class GAEngine:
             if gen > 0 and gen % self.migration_interval == 0:
                 self._migrate()
 
+            # ================= CONFIDENCE COMPUTATION (GA → LSTM) =================
+            fitness_vals = [
+                ind.fitness
+                for isl in self.islands
+                for ind in isl.population
+                if ind.is_evaluated
+            ]
+
+            if fitness_vals:
+                fitness_mean = np.mean(fitness_vals)
+                fitness_std = np.std(fitness_vals)
+                ga_confidence = float(1.0 / (1.0 + (fitness_std / (fitness_mean + EPSILON))))
+            else:
+                ga_confidence = 0.0
+
             # LOG BEST VECTOR
             if global_best_ind is not None:
                 g = global_best_ind.genome
@@ -881,8 +896,13 @@ class GAEngine:
                     sig_reset.loc[snap_start_pos, "index"]
                 )
 
+                snap_time = sig_reset.loc[snap_end_pos, "Tanggal"]
+
+                snap_event = sig_reset.loc[snap_end_pos]
+                
                 self.history_log.append({
                     "Generation": gen,
+                    "Timestamp": snap_time,
                     "Start_Lat": g.lat,
                     "Start_Lon": g.lon,
                     "End_Lat": e_lat,
@@ -890,8 +910,12 @@ class GAEngine:
                     "Angle": g.angle,
                     "Distance": g.dist,
                     "Fitness": global_best_ind.fitness,
+                    "GA_Confidence": ga_confidence,
                     "Snap_Start_Idx": snap_start_orig_index,
                     "Snap_End_Idx": snap_end_orig_index,
+                    "Event_Time": snap_event["Tanggal"],
+                    "Event_Lat": snap_event["Lintang"],
+                    "Event_Lon": snap_event["Bujur"],
                 })
 
             # LOG PROGRESS

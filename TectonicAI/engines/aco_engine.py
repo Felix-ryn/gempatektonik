@@ -410,19 +410,48 @@ class ACOEngine:
         df_out['Radius_Visual_KM'] = base_r * (1 + pher * 0.3)
 
     # ==========================================
-    # ACO NUMERIC SUMMARY (PUSAT & LUAS DAMPAK)
+    # ACO NUMERIC SUMMARY (WEIGHTED CENTER & IMPACT)
     # ==========================================
         try:
-            center_lat = float(df_out['Lintang'].mean())
-            center_lon = float(df_out['Bujur'].mean())
+            # === WEIGHTED CENTROID BERDASARKAN PHEROMONE ===
+            pher = np.asarray(df_out['Pheromone_Score'].fillna(0.0).astype(float))
+            lats = np.asarray(df_out['Lintang'].astype(float))
+            lons = np.asarray(df_out['Bujur'].astype(float))
 
-            max_radius_km = float(df_out['Radius_Visual_KM'].max())
-            impact_area_km2 = math.pi * (max_radius_km ** 2)
+            if pher.sum() > 0:
+                center_lat = float(np.sum(lats * pher) / pher.sum())
+                center_lon = float(np.sum(lons * pher) / pher.sum())
+            else:
+                # fallback aman
+                center_lat = float(lats.mean())
+                center_lon = float(lons.mean())
 
+            # === HITUNG RADIUS DAMPAK BERDASARKAN JARAK TERJAUH ===
+            def _haversine_scalar_array(lat_arr, lon_arr, lat_c, lon_c):
+                lat1 = np.radians(lat_arr)
+                lon1 = np.radians(lon_arr)
+                lat2 = np.radians(lat_c)
+                lon2 = np.radians(lon_c)
+                dlat = lat2 - lat1
+                dlon = lon2 - lon1
+                a = np.sin(dlat / 2.0)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon / 2.0)**2
+                c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
+                return 6371.0 * c
+
+            dists = _haversine_scalar_array(lats, lons, center_lat, center_lon)
+            impact_radius_km = float(np.max(dists))
+            impact_area_km2 = math.pi * (impact_radius_km ** 2)
+
+            # === SIMPAN KE DF (PENTING UNTUK LSTM) ===
+            df_out['ACO_Center_Lat'] = center_lat
+            df_out['ACO_Center_Lon'] = center_lon
+            df_out['ACO_Impact_Radius_km'] = impact_radius_km
+
+            # === SIMPAN SUMMARY JSON ===
             aco_summary = {
                 "center_latitude": round(center_lat, 6),
                 "center_longitude": round(center_lon, 6),
-                "impact_radius_km": round(max_radius_km, 2),
+                "impact_radius_km": round(impact_radius_km, 2),
                 "impact_area_km2": round(impact_area_km2, 2),
                 "total_events": int(len(df_out))
             }
@@ -435,10 +464,10 @@ class ACOEngine:
             with open(summary_path, "w") as f:
                 json.dump(aco_summary, f, indent=4)
 
-            self.logger.info(f"ACO Summary numerik tersimpan: {summary_path}")
+            self.logger.info("ACO weighted center & impact summary berhasil dibuat")
 
         except Exception as e:
-            self.logger.error(f"Gagal membuat ACO Summary numerik: {e}")
+            self.logger.error(f"Gagal menghitung ACO weighted center: {e}")
 
     # ==========================================
     # SIMPAN FILE & VISUAL
@@ -457,12 +486,17 @@ class ACOEngine:
     # ==========================================
 
     def _save_to_disk(self, df):
+        for c in ['ACO_Center_Lat', 'ACO_Center_Lon', 'ACO_Impact_Radius_km']:
+            if c not in df.columns:
+                df[c] = np.nan
         mag_col = 'Magnitudo_Original' if 'Magnitudo_Original' in df.columns else 'Magnitudo'
         depth_col = 'Kedalaman_Original' if 'Kedalaman_Original' in df.columns else 'Kedalaman_km'
         
-        cols = ['Tanggal', 'Lintang', 'Bujur', mag_col, depth_col, 'Lokasi',
-                'Pheromone_Score', 'Status_Zona', 'Radius_Visual_KM']
-        
+        cols = [
+            'Tanggal', 'Lintang', 'Bujur', mag_col, depth_col, 'Lokasi',
+            'Pheromone_Score', 'Status_Zona', 'Radius_Visual_KM',
+            'ACO_Center_Lat', 'ACO_Center_Lon', 'ACO_Impact_Radius_km'
+        ]
         final_df = df[cols].rename(columns={mag_col: 'Magnitudo', depth_col: 'Kedalaman'})
         
         try:
