@@ -24,6 +24,7 @@ from sklearn.calibration import CalibratedClassifierCV
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.model_selection import StratifiedKFold
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 
 
 class EvaluationEngine:
@@ -60,6 +61,8 @@ class EvaluationEngine:
             weights=[1, 2, 1]
         )
 
+        self.evaluator_name = "Naive Bayes"
+
         self.scaler = StandardScaler()
         self.encoder = LabelEncoder()
 
@@ -67,6 +70,7 @@ class EvaluationEngine:
         self.paths = {
             "model": os.path.join(base_path, "evaluation_model.pkl"),
             "metrics": os.path.join(base_path, "system_metrics.json"),
+            "eval_metrics": os.path.join(base_path, "system_evaluation_metrics.json"),
             "log": os.path.join(base_path, "decision_history.csv")
         }
 
@@ -121,11 +125,14 @@ class EvaluationEngine:
         """Ensure required features always exist, prioritizing original magnitude/depth."""
 
         required = [
-            "Magnitudo", "Kedalaman_km", # Diganti di baris berikutnya
-            "rolling_mag_mean", "rolling_event_count",
+            "Magnitudo_Feat",
+            "Kedalaman_km_Feat",
+            "rolling_mag_mean",
+            "rolling_event_count",
             "Pheromone_Score",
             "Temporal_Risk_Factor",
-            "Proporsi_Grid_Terdampak_CNN"
+            "CNN_Pred_Angle",
+            "CNN_Pred_Distance"
         ]
 
         # ✅ FIX KRITIS: Prioritaskan kolom Original (Data ASLI/Mentah)
@@ -135,11 +142,14 @@ class EvaluationEngine:
 
         # Ganti required columns dengan versi Feat (yang sudah ter-safe_column)
         required_feat = [
-             "Magnitudo_Feat", "Kedalaman_km_Feat", 
-             "rolling_mag_mean", "rolling_event_count",
-             "Pheromone_Score",
-             "Temporal_Risk_Factor",
-             "Proporsi_Grid_Terdampak_CNN"
+            "Magnitudo_Feat",
+            "Kedalaman_km_Feat",
+            "rolling_mag_mean",
+            "rolling_event_count",
+            "Pheromone_Score",
+            "Temporal_Risk_Factor",
+            "CNN_Pred_Angle",
+            "CNN_Pred_Distance"
         ]
 
         for col in required_feat:
@@ -177,11 +187,81 @@ class EvaluationEngine:
 
         return "RINGAN"
 
+    # =================================================
+    # MODEL-LEVEL EVALUATION SUMMARY (BARU)
+    # =================================================
+    def _build_model_summary(self, y_true, y_pred):
+        cm = confusion_matrix(y_true, y_pred)
+
+        return {
+            "Akurasi": float(accuracy_score(y_true, y_pred)),
+            "PPV (Presisi)": float(
+                precision_score(y_true, y_pred, average="weighted", zero_division=0)
+            ),
+            "Sensitivitas (Recall)": float(
+                recall_score(y_true, y_pred, average="weighted", zero_division=0)
+            ),
+            "F1-Score": float(
+                f1_score(y_true, y_pred, average="weighted", zero_division=0)
+            ),
+            "Confusion_Matrix": {
+                "True_Negative": int(cm[0, 0]) if cm.shape[0] > 0 else 0,
+                "False_Positive": int(cm[0, 1]) if cm.shape[1] > 1 else 0,
+                "False_Negative": int(cm[1, 0]) if cm.shape[0] > 1 else 0,
+                "True_Positive": int(cm[1, 1]) if cm.shape[1] > 1 else 0,
+            }
+        }
+
+    def _write_all_metrics(
+        self,
+        mode: str,
+        metrics: dict,
+        confusion_matrix: list,
+        evaluation_summary: dict | None
+    ):
+        """
+        SATU-SATUNYA pintu penulisan metrics.
+        Dijamin update di realtime & offline.
+        """
+
+        timestamp = str(datetime.now())
+
+        # ===============================
+        # system_metrics.json
+        # ===============================
+        system_metrics = {
+            "timestamp": timestamp,
+            "mode": mode,
+            "evaluator": self.evaluator_name,
+            "labels": self.fixed_labels,
+            "metrics": metrics,
+            "confusion_matrix": confusion_matrix
+        }
+
+        with open(self.paths["metrics"], "w") as f:
+            json.dump(system_metrics, f, indent=4)
+
+        # ===============================
+        # system_evaluation_metrics.json
+        # ===============================
+        if evaluation_summary is None:
+            evaluation_summary = {
+                "info": "No statistical evaluation (realtime mode)",
+                "timestamp": timestamp
+            }
+
+        with open(self.paths["eval_metrics"], "w") as f:
+            json.dump(evaluation_summary, f, indent=4)
+
+        self.logger.info("ALL METRICS FILES UPDATED SUCCESSFULLY.")
+
     # ---------------------------------------------------------
     # MAIN EXECUTION (Fungsi Penting)
     # ---------------------------------------------------------
 
     def run(self, df: pd.DataFrame, train_idx, test_idx):
+
+        mode = "OFFLINE_BATCH" if force_offline_eval else "REALTIME_SINGLE_EVENT"
 
         self.logger.info("=== SAFE EVALUATION STARTED ===")
 
@@ -259,8 +339,10 @@ class EvaluationEngine:
                 # Bypass ensemble untuk data tunggal/sangat sedikit agar tidak crash Naive Bayes.
                 raise ValueError("Bypass ensemble for single sample to enforce stable fallback.")
             
-            self.ensemble.fit(X_train_std, y_train)
-            successful_classifier = self.ensemble
+            self.logger.info("Training Naive Bayes Evaluator...")
+            self.nb.fit(X_train_std, y_train)
+            successful_classifier = self.nb
+
             self.logger.info("Ensemble Training BERHASIL.")
         
         except Exception as e:
@@ -293,24 +375,24 @@ class EvaluationEngine:
         # ------------------------------
         # 6. PENANGANAN DATA TEST KOSONG (REAL-TIME TUNGGAL)
         # ------------------------------
-        if len(X_test) == 0:
-            self.logger.warning("[SAFE EVAL] Test set kosong. Melewati Inference/Metrics. Menyimpan model...")
-            df["Final_Prob_Impact"] = 0.0 # Pastikan default 0.0
-        
-            # --- Simpan Model (Langkah 9 - dipindahkan ke sini) ---
-            try:
-                 with open(self.paths["model"], "wb") as f:
-                     pickle.dump({
-                         "model": self.ensemble,
-                         "scaler": self.scaler,
-                         "encoder": self.encoder
-                     }, f)
-                 self.logger.info("Model FALLBACK BERHASIL disimpan.")
-            except Exception as e:
-                self.logger.error(f"MODEL SAVE FAILED: {e}")
-            
-            return df
-    
+
+        # ==========================================================
+        # FORCE OFFLINE EVALUATION USING TRAIN DATA IF TEST EMPTY
+        # ==========================================================
+        force_offline_eval = False
+
+        if len(X_test) < 2:
+            self.logger.warning(
+                "[SAFE EVAL] X_test terlalu kecil. Menggunakan DATA TRAIN untuk evaluasi statistik."
+            )
+
+            X_eval = X_train_std
+            y_eval_true = y_train
+            force_offline_eval = True
+        else:
+            X_eval = self.scaler.transform(X_test)
+            y_eval_true = y_test
+
         # ------------------------------
         # 7. INFERENCE (JALUR NORMAL: len(X_test) > 0)
         # ------------------------------
@@ -319,11 +401,11 @@ class EvaluationEngine:
         X_test_std = self.scaler.transform(X_test)
 
         # Prediksi menggunakan classifier yang berhasil
-        y_pred = self.ensemble.predict(X_test_std)
+        y_pred = successful_classifier.predict(X_eval)
 
         # Probabilitas (digunakan untuk Final_Prob_Impact)
         try:
-            prob = self.ensemble.predict_proba(X_test_std)
+            prob = successful_classifier.predict_proba(X_test_std)
         except:
             self.logger.warning("Predict_proba gagal, menggunakan probabilitas default 0.")
             prob = np.zeros((len(y_test), 3))
@@ -348,8 +430,23 @@ class EvaluationEngine:
         all_possible_numeric_labels = list(self.encoder.transform(self.fixed_labels)) 
     
         # Perbaiki y_test dan y_pred, pastikan hanya data valid yang digunakan
-        y_test_clean = y_test[np.isfinite(y_test)]
+        y_test_clean = y_eval_true[np.isfinite(y_eval_true)]
         y_pred_clean = y_pred[:len(y_test_clean)]
+
+
+        # ======================================================
+        # 8B. MODEL-LEVEL EVALUATION SUMMARY (UNTUK CLIENT)
+        # ======================================================
+
+        try:
+            evaluation_summary = {
+                "NaiveBayes": self._build_model_summary(
+                    y_test_clean, y_pred_clean
+                )
+            }
+
+        except Exception as e:
+            self.logger.error(f"MODEL EVALUATION SUMMARY FAILED: {e}")
 
         try:
             metrics = classification_report(
@@ -374,13 +471,19 @@ class EvaluationEngine:
 
         data_out = {
             "timestamp": str(datetime.now()),
+            "mode": "OFFLINE_BATCH",
+            "evaluator": self.evaluator_name,
             "labels": self.fixed_labels,
             "metrics": metrics,
             "confusion_matrix": cm
         }
 
-        with open(self.paths["metrics"], "w") as f:
-            json.dump(data_out, f, indent=4)
+        self._write_all_metrics(
+        mode="OFFLINE_BATCH",
+        metrics=metrics,
+        confusion_matrix=cm,
+        evaluation_summary=evaluation_summary
+    )
 
         # ------------------------------
         # 9. SAVE MODEL (JALUR NORMAL)

@@ -1,26 +1,4 @@
 {
-    "NaiveBayes": {
-        "Akurasi": 0.9712918660287081,
-        "PPV (Presisi)": 0.9495548961424333,
-        "Sensitivitas (Recall)": 0.9968847352024922,
-        "F1-Score": 0.9726443768996961,
-        "Confusion_Matrix": {
-            "True_Negative": 289,
-            "False_Positive": 17,
-            "False_Negative": 1,
-            "True_Positive": 320
-        }
-    },
-    "RandomForestClassifier": {
-        "Akurasi": 1.0,
-        "PPV (Presisi)": 1.0,
-        "Sensitivitas (Recall)": 1.0,
-        "F1-Score": 1.0,
-        "Confusion_Matrix": {
-            "True_Negative": 306,
-            "False_Positive": 0,
-            "False_Negative": 0,
-            "True_Positive": 321
-        }
-    }
+    "info": "No statistical evaluation (realtime mode)",
+    "timestamp": "2025-12-16 17:04:14.379677"
 }
