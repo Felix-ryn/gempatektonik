@@ -1,4 +1,25 @@
 {
-    "info": "No statistical evaluation (realtime mode)",
-    "timestamp": "2025-12-16 17:04:14.379677"
+    "NaiveBayes": {
+        "Akurasi": 0.9291866028708134,
+        "PPV (Presisi)": 0.9259703800927936,
+        "Sensitivitas (Recall)": 0.9291866028708134,
+        "F1-Score": 0.9271024624464989,
+        "Confusion_Matrix": [
+            [
+                1607,
+                27,
+                16
+            ],
+            [
+                60,
+                96,
+                7
+            ],
+            [
+                21,
+                17,
+                239
+            ]
+        ]
+    }
 }

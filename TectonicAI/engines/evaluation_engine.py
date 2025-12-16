@@ -191,25 +191,13 @@ class EvaluationEngine:
     # MODEL-LEVEL EVALUATION SUMMARY (BARU)
     # =================================================
     def _build_model_summary(self, y_true, y_pred):
-        cm = confusion_matrix(y_true, y_pred)
-
+        cm = confusion_matrix(y_true, y_pred, labels=list(self.encoder.transform(self.fixed_labels)))
         return {
             "Akurasi": float(accuracy_score(y_true, y_pred)),
-            "PPV (Presisi)": float(
-                precision_score(y_true, y_pred, average="weighted", zero_division=0)
-            ),
-            "Sensitivitas (Recall)": float(
-                recall_score(y_true, y_pred, average="weighted", zero_division=0)
-            ),
-            "F1-Score": float(
-                f1_score(y_true, y_pred, average="weighted", zero_division=0)
-            ),
-            "Confusion_Matrix": {
-                "True_Negative": int(cm[0, 0]) if cm.shape[0] > 0 else 0,
-                "False_Positive": int(cm[0, 1]) if cm.shape[1] > 1 else 0,
-                "False_Negative": int(cm[1, 0]) if cm.shape[0] > 1 else 0,
-                "True_Positive": int(cm[1, 1]) if cm.shape[1] > 1 else 0,
-            }
+            "PPV (Presisi)": float(precision_score(y_true, y_pred, average="weighted", zero_division=0)),
+            "Sensitivitas (Recall)": float(recall_score(y_true, y_pred, average="weighted", zero_division=0)),
+            "F1-Score": float(f1_score(y_true, y_pred, average="weighted", zero_division=0)),
+            "Confusion_Matrix": cm.tolist()
         }
 
     def _write_all_metrics(
@@ -261,17 +249,12 @@ class EvaluationEngine:
 
     def run(self, df: pd.DataFrame, train_idx, test_idx):
 
-        mode = "OFFLINE_BATCH" if force_offline_eval else "REALTIME_SINGLE_EVENT"
-
         self.logger.info("=== SAFE EVALUATION STARTED ===")
 
-        # ------------------------------
         # SANITY: Reset index sehingga .iloc/.loc numerik konsisten
-        # ------------------------------
         try:
             df = df.reset_index(drop=True)
         except Exception:
-            # Kalau gagal (sangat jarang), tetap lanjut tapi log exception
             self.logger.exception("Gagal melakukan reset_index pada df — melanjutkan dengan index asli.")
 
         # Pastikan train_idx / test_idx menjadi numpy int arrays dan valid
@@ -293,22 +276,20 @@ class EvaluationEngine:
             train_idx = np.array([], dtype=int)
             test_idx = np.array([], dtype=int)
 
-        # ------------------------------
         # 1-3. DATA PREP & SPLIT (SAFE)
-        # ------------------------------
         labels = df.apply(self._label_rule_based, axis=1)
         y_encoded = self.encoder.transform(labels)
         X_raw = self._extract_features(df)
 
-        # Gunakan iloc (posisi) — lebih eksplisit dan aman
         X_train = X_raw.iloc[train_idx].values if len(train_idx) > 0 else np.empty((0, X_raw.shape[1]))
         X_test = X_raw.iloc[test_idx].values if len(test_idx) > 0 else np.empty((0, X_raw.shape[1]))
         y_train = y_encoded[train_idx] if len(train_idx) > 0 else np.array([], dtype=int)
         y_test = y_encoded[test_idx] if len(test_idx) > 0 else np.array([], dtype=int)
 
-        # ------------------------------
+        # default
+        force_offline_eval = False
+
         # 4. STANDARDIZATION & SYNTHETIC FIX (TRAIN PATH)
-        # ------------------------------
         if len(X_train) == 0:
             self.logger.critical("[SAFE EVAL] Training data kosong. Gagal melatih model.")
             df["Final_Prob_Impact"] = 0.0
@@ -324,6 +305,7 @@ class EvaluationEngine:
 
         # Inject synthetic samples jika single-class
         X_train_std, y_train = self._inject_synthetic_samples(X_train_std, y_train)
+
 
         # ------------------------------
         # 5. ROBUST MODEL TRAINING (Menciptakan successful_classifier)
@@ -382,10 +364,7 @@ class EvaluationEngine:
         force_offline_eval = False
 
         if len(X_test) < 2:
-            self.logger.warning(
-                "[SAFE EVAL] X_test terlalu kecil. Menggunakan DATA TRAIN untuk evaluasi statistik."
-            )
-
+            self.logger.warning("[SAFE EVAL] X_test terlalu kecil. Menggunakan DATA TRAIN untuk evaluasi statistik.")
             X_eval = X_train_std
             y_eval_true = y_train
             force_offline_eval = True
@@ -393,97 +372,74 @@ class EvaluationEngine:
             X_eval = self.scaler.transform(X_test)
             y_eval_true = y_test
 
-        # ------------------------------
-        # 7. INFERENCE (JALUR NORMAL: len(X_test) > 0)
-        # ------------------------------
-    
-        # Transform X_test
-        X_test_std = self.scaler.transform(X_test)
+        # Tentukan mode sekarang setelah tahu force_offline_eval
+        mode = "OFFLINE_BATCH" if force_offline_eval else "REALTIME_SINGLE_EVENT"
 
         # Prediksi menggunakan classifier yang berhasil
         y_pred = successful_classifier.predict(X_eval)
 
-        # Probabilitas (digunakan untuk Final_Prob_Impact)
+        # Probabilitas (digunakan untuk Final_Prob_Impact) -> gunakan test set asli untuk probabilitas
         try:
-            prob = successful_classifier.predict_proba(X_test_std)
-        except:
+            X_test_std = self.scaler.transform(X_test) if len(X_test) > 0 else np.empty((0, X_train_std.shape[1]))
+            prob = successful_classifier.predict_proba(X_test_std) if len(X_test_std) > 0 else np.zeros((0, len(self.fixed_labels)))
+        except Exception:
             self.logger.warning("Predict_proba gagal, menggunakan probabilitas default 0.")
-            prob = np.zeros((len(y_test), 3))
+            prob = np.zeros((len(y_test), len(self.fixed_labels)))
 
         # Extract only PARAH probability safely
         try:
             class_index = list(self.encoder.classes_).index("PARAH")
-            prob_parah = prob[:, class_index]
-        except:
-            prob_parah = np.zeros(len(prob))
+            prob_parah = prob[:, class_index] if prob.size > 0 else np.zeros(len(y_test))
+        except Exception:
+            prob_parah = np.zeros(len(y_test))
 
         df["Final_Prob_Impact"] = 0.0
-
-        # SAFE assignment by POSITION (bukan label index)
-        if len(test_idx) > 0:
+        if len(test_idx) > 0 and len(prob_parah) > 0:
             df.iloc[test_idx, df.columns.get_loc("Final_Prob_Impact")] = prob_parah
-        # ------------------------------
-        # 8. METRICS + LOGGING
-        # ------------------------------
-    
-        # Labels numerik yang harus dicari (0, 1, 2)
-        all_possible_numeric_labels = list(self.encoder.transform(self.fixed_labels)) 
-    
-        # Perbaiki y_test dan y_pred, pastikan hanya data valid yang digunakan
-        y_test_clean = y_eval_true[np.isfinite(y_eval_true)]
-        y_pred_clean = y_pred[:len(y_test_clean)]
 
+        # Prepare y_test_clean / y_pred_clean for metrics (guard)
+        y_test_clean = y_eval_true if len(y_eval_true) > 0 else np.array([], dtype=int)
+        y_pred_clean = y_pred[:len(y_test_clean)] if len(y_test_clean) > 0 else np.array([], dtype=int)
 
-        # ======================================================
-        # 8B. MODEL-LEVEL EVALUATION SUMMARY (UNTUK CLIENT)
-        # ======================================================
-
-        try:
-            evaluation_summary = {
-                "NaiveBayes": self._build_model_summary(
-                    y_test_clean, y_pred_clean
+        # Build metrics only if we have labels
+        if len(y_test_clean) > 0:
+            try:
+                all_possible_numeric_labels = list(self.encoder.transform(self.fixed_labels))
+                metrics = classification_report(
+                    y_test_clean, y_pred_clean,
+                    labels=all_possible_numeric_labels,
+                    target_names=self.fixed_labels,
+                    output_dict=True, zero_division=0
                 )
-            }
+            except Exception as e:
+                self.logger.error(f"Classification Report Gagal: {e}")
+                metrics = {}
 
-        except Exception as e:
-            self.logger.error(f"MODEL EVALUATION SUMMARY FAILED: {e}")
+            try:
+                cm = confusion_matrix(y_test_clean, y_pred_clean, labels=all_possible_numeric_labels).tolist()
+            except Exception as e:
+                self.logger.error(f"Confusion Matrix Gagal: {e}")
+                cm = [[0]*len(self.fixed_labels) for _ in self.fixed_labels]
 
-        try:
-            metrics = classification_report(
-                y_test_clean, y_pred_clean,
-                labels=all_possible_numeric_labels, 
-                target_names=self.fixed_labels,
-                output_dict=True,
-                zero_division=0
-            )
-        except Exception as e:
-            self.logger.error(f"Classification Report Gagal: {e}")
+            try:
+                evaluation_summary = {"NaiveBayes": self._build_model_summary(y_test_clean, y_pred_clean)}
+            except Exception as e:
+                self.logger.error(f"MODEL EVALUATION SUMMARY FAILED: {e}")
+                evaluation_summary = None
+        else:
+            # no labels available -> keep graceful defaults
             metrics = {}
-        
-        try:
-            cm = confusion_matrix(
-                y_test_clean, y_pred_clean,
-                labels=all_possible_numeric_labels
-            ).tolist()
-        except Exception as e:
-            self.logger.error(f"Confusion Matrix Gagal: {e}")
-            cm = [[0,0,0], [0,0,0], [0,0,0]] 
+            cm = [[0]*len(self.fixed_labels) for _ in self.fixed_labels]
+            evaluation_summary = None
 
-        data_out = {
-            "timestamp": str(datetime.now()),
-            "mode": "OFFLINE_BATCH",
-            "evaluator": self.evaluator_name,
-            "labels": self.fixed_labels,
-            "metrics": metrics,
-            "confusion_matrix": cm
-        }
-
+        # Write files using the correctly computed mode
         self._write_all_metrics(
-        mode="OFFLINE_BATCH",
-        metrics=metrics,
-        confusion_matrix=cm,
-        evaluation_summary=evaluation_summary
-    )
+            mode=mode,
+            metrics=metrics,
+            confusion_matrix=cm,
+            evaluation_summary=evaluation_summary
+        )
+
 
         # ------------------------------
         # 9. SAVE MODEL (JALUR NORMAL)

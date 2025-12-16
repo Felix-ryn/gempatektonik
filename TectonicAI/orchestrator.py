@@ -209,11 +209,11 @@ class TectonicOrchestrator:
 
 
         # 4. Tentukan Train/Test Split (Berdasarkan Tag 'LIVE_HISTORYS')
-        
+
         df_history_only = df_dynamic[df_dynamic['Data_Source'] == 'LIVE_HISTORYS'].copy()
-        
+
         n_history_live = len(df_history_only)
-        
+
         # 1. Tentukan Test Index (Selalu baris terakhir dari data Historys)
         if n_history_live == 0:
             test_idx = pd.Index([])
@@ -221,19 +221,47 @@ class TectonicOrchestrator:
             test_idx = df_history_only.index
         else:
             test_idx = df_history_only.index[-1:]
-        
+
         # 2. Train Index: Semua Index yang BUKAN Test Index
         all_indices = df_dynamic.index
         train_idx = all_indices.difference(test_idx)
 
+        # ======================================================
+        # [FIX KRITIS] Konversi index LABEL → POSITIONAL INDEX
+        # ======================================================
+
+        # 🔧 SIMPAN mapping SEBELUM reset_index
+        label_to_pos = {idx: pos for pos, idx in enumerate(df_dynamic.index)}
+
+        # Reset agar iloc aman
+        df_dynamic = df_dynamic.reset_index(drop=True)
+
+        # Konversi ke numpy positional index
+        train_idx = np.array(
+            [label_to_pos[i] for i in train_idx if i in label_to_pos],
+            dtype=int
+        )
+
+        test_idx = np.array(
+            [label_to_pos[i] for i in test_idx if i in label_to_pos],
+            dtype=int
+        )
+
+        # ======================================================
+
         n_static_train = len(train_idx)
         n_dynamic_live = len(test_idx)
 
-        self.logger.info(f"[ORCH] Split Context: Total={len(df_dynamic)} | Train(Historys+Static)={n_static_train} | Test(Live)={n_dynamic_live}")
-        
+        self.logger.info(
+            f"[ORCH] Split Context: Total={len(df_dynamic)} | "
+            f"Train(Historys+Static)={n_static_train} | Test(Live)={n_dynamic_live}"
+        )
+
         if n_static_train == 0:
-             self.logger.critical("[ORCH] Train Set (Historis/Context) kosong. Model tidak akan dilatih.")
-             
+            self.logger.critical(
+                "[ORCH] Train Set (Historis/Context) kosong. Model tidak akan dilatih."
+            )
+    
         # ======================================================
         # PHASE 2-5: ENGINE EXECUTION
         # ======================================================

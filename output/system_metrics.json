@@ -1,28 +1,60 @@
 {
-    "timestamp": "2025-12-16 17:04:14.379677",
-    "mode": "REALTIME_SINGLE_EVENT",
+    "timestamp": "2025-12-16 18:20:24.794908",
+    "mode": "OFFLINE_BATCH",
     "evaluator": "Naive Bayes",
     "labels": [
         "RINGAN",
         "SEDANG",
         "PARAH"
     ],
-    "metrics": {},
+    "metrics": {
+        "RINGAN": {
+            "precision": 0.9520142180094787,
+            "recall": 0.973939393939394,
+            "f1-score": 0.9628520071899341,
+            "support": 1650.0
+        },
+        "SEDANG": {
+            "precision": 0.6857142857142857,
+            "recall": 0.588957055214724,
+            "f1-score": 0.6336633663366337,
+            "support": 163.0
+        },
+        "PARAH": {
+            "precision": 0.9122137404580153,
+            "recall": 0.8628158844765343,
+            "f1-score": 0.8868274582560297,
+            "support": 277.0
+        },
+        "accuracy": 0.9291866028708134,
+        "macro avg": {
+            "precision": 0.8499807480605933,
+            "recall": 0.8085707778768841,
+            "f1-score": 0.8277809439275324,
+            "support": 2090.0
+        },
+        "weighted avg": {
+            "precision": 0.9259703800927936,
+            "recall": 0.9291866028708134,
+            "f1-score": 0.9271024624464989,
+            "support": 2090.0
+        }
+    },
     "confusion_matrix": [
         [
-            0,
-            0,
-            0
+            1607,
+            27,
+            16
         ],
         [
-            0,
-            0,
-            0
+            60,
+            96,
+            7
         ],
         [
-            0,
-            0,
-            0
+            21,
+            17,
+            239
         ]
     ]
 }
