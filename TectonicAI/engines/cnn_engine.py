@@ -17,18 +17,28 @@ from typing import Optional, Dict, List, Any, Tuple
 # --- DEEP LEARNING STACK ---
 try:
     import tensorflow as tf
-    from keras.models import Model, load_model
-    from keras.layers import (
+    from tensorflow.keras.models import Model, load_model
+    from tensorflow.keras.layers import (
         Input, Conv2D, MaxPooling2D,
         Conv2DTranspose, concatenate,
         BatchNormalization, Activation, Add, Dropout
     )
-    from keras.callbacks import EarlyStopping, ModelCheckpoint, CSVLogger
-    from keras.optimizers import Adam
+    from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, CSVLogger
+    from tensorflow.keras.optimizers import Adam
+    from tensorflow.keras import backend as K
+    # Optional: set seed & GPU memory growth
+    tf.keras.utils.set_random_seed(42)
+    gpus = tf.config.list_physical_devices('GPU')
+    for g in gpus:
+        try:
+            tf.config.experimental.set_memory_growth(g, True)
+        except Exception:
+            pass
     HAS_TF = True
-except ImportError:
+except Exception:
     HAS_TF = False
-    logging.warning("TensorFlow not found. CNN Engine disabled.")
+    logging.warning("TensorFlow not found or incompatible. CNN Engine disabled.")
+
 
 # ============================================================
 # SYNC PANJANG ARRAY (FIX broadcast error) & METRICS
@@ -49,6 +59,41 @@ def sync_len(*arrays):
         else:
             synced.append(a[:min_len])
     return tuple(synced)
+
+def extract_direction_and_angle(mask: np.ndarray) -> Tuple[float, float, float]:
+    """
+    Ekstrak arah (azimuth), sudut sebaran, dan confidence dari output CNN mask.
+    """
+    if mask is None or mask.size == 0:
+        return 0.0, 0.0, 0.0
+
+    m = mask.squeeze()
+    h, w = m.shape
+
+    total = np.sum(m)
+    if total <= 1e-6:
+        return 0.0, 0.0, 0.0
+
+    y, x = np.mgrid[0:h, 0:w]
+
+    cx = np.sum(x * m) / total
+    cy = np.sum(y * m) / total
+
+    dx = cx - (w / 2)
+    dy = (h / 2) - cy  # koordinat kartesian
+
+    # Azimuth (0–360 derajat)
+    azimuth = (np.degrees(np.arctan2(dx, dy)) + 360) % 360
+
+    # Sudut deviasi (sebaran area terdampak)
+    dist = np.sqrt((x - cx) ** 2 + (y - cy) ** 2)
+    spread = np.sum(dist * m) / total
+
+    # Confidence sederhana
+    confidence = float(np.clip(np.mean(m), 0, 1))
+
+    return float(azimuth), float(spread), confidence
+
 
 def dice_coef(y_true, y_pred, smooth=1e-6):
     y_true_f = tf.reshape(y_true, [-1])
@@ -146,6 +191,8 @@ class TensorConstructor:
 # ============================================================
 
 class CNNModelArchitect:
+    from tensorflow.keras import backend as K
+
     def _res_block(self, x, filters):
         shortcut = x
 
@@ -156,12 +203,14 @@ class CNNModelArchitect:
         x = Conv2D(filters, 3, padding="same")(x)
         x = BatchNormalization()(x)
 
-        if shortcut.shape[-1] != filters:
+        sc_channels = K.int_shape(shortcut)[-1]
+        if sc_channels is None or sc_channels != filters:
             shortcut = Conv2D(filters, 1, padding="same")(shortcut)
 
         x = Add()([x, shortcut])
         x = Activation("relu")(x)
         return x
+
 
     # [FIX] Renamed to build_model to match caller expectation
     def build_model(self, params: Dict = None, input_shape=None):
@@ -231,8 +280,13 @@ class VisualizationPipeline:
             plt.title(f"{lokasi} | M {mag}")
             plt.axis("off")
 
-            os.makedirs(os.path.dirname(self.paths["realtime_viz"]), exist_ok=True)
-            plt.savefig(self.paths["realtime_viz"], dpi=150, bbox_inches="tight")
+            viz_path = self.paths.get("realtime_viz", "")
+            if not viz_path:
+                return
+
+            viz_dir = os.path.dirname(viz_path) or "."
+            os.makedirs(viz_dir, exist_ok=True)
+            plt.savefig(viz_path, dpi=150, bbox_inches="tight")
             plt.close()
 
         except Exception as e:
@@ -258,27 +312,38 @@ class CNNEngine:
         self.input_channels = 5 # Standard input (Mag, Depth, Pheromone, Temporal, Cluster)
 
         # --- BLOK KRITIS: INISIALISASI PATHS ---
+        # inside __init__
         try:
-            # Gunakan lokasi file ini sebagai referensi untuk naik ke root project
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            project_root = os.path.abspath(os.path.join(current_dir, "../..")) 
+            # fallback jika __file__ tidak tersedia (notebook / REPL)
+            if '__file__' in globals():
+                current_dir = os.path.dirname(os.path.abspath(__file__))
+            else:
+                current_dir = os.getcwd()
+
+            project_root = os.path.abspath(os.path.join(current_dir, "../.."))
             base_output = os.path.join(project_root, "output")
-            
-            # ATUR self.paths di sini
+
+            # default paths
             self.paths = {
-                "lstm_bridge_in": os.path.join(base_output, "lstm_results/lstm_data_for_cnn.xlsx"),
-                "model_file": os.path.join(base_output, "cnn_results/ResUNetXL.keras"),
-                "training_log": os.path.join(base_output, "cnn_results/training_log.csv"),
-                "realtime_viz": os.path.join(base_output, "cnn_results/latest_heatmap.png"),
+                "lstm_bridge_in": os.path.join(base_output, "lstm_results", "lstm_data_for_cnn.xlsx"),
+                "model_file": os.path.join(base_output, "cnn_results", "ResUNetXL.keras"),
+                "training_log": os.path.join(base_output, "cnn_results", "training_log.csv"),
+                "realtime_viz": os.path.join(base_output, "cnn_results", "latest_heatmap.png"),
+                "cnn_prediction_out": os.path.join(base_output, "cnn_results", "cnn_next_earthquake_prediction.csv"),
             }
-            # Buat direktori output jika belum ada
+
+            # allow overriding via config (handy ketika run di PC/laptop kamu)
+            if isinstance(self.cnn_cfg.get("paths"), dict):
+                for k, v in self.cnn_cfg["paths"].items():
+                    if v:
+                        self.paths[k] = v
+
             os.makedirs(os.path.dirname(self.paths["model_file"]), exist_ok=True)
             self.logger.info("CNN DEBUG: [Init] Path output berhasil dikonfigurasi.")
-            
         except Exception as e:
-            self.paths = {} 
+            self.paths = {}
             self.logger.critical(f"CNN CRASH INIT: Gagal membuat/mengakses path output: {e}. CNN running in 'Disabled Mode'.")
-            
+
         # Inisialisasi komponen pendukung
         self.tensor_builder = TensorConstructor(self.grid_size, self.logger)
         self.architect = CNNModelArchitect()
@@ -287,21 +352,28 @@ class CNNEngine:
 
     # --------------------------------------------------------
     def _load_lstm_bridge(self):
-        """Memuat data bridging dari LSTM Engine."""
         if not self.paths:
-             return pd.DataFrame()
-        
+            return pd.DataFrame()
+
         path_in = self.paths.get("lstm_bridge_in", "")
         if not path_in or not os.path.exists(path_in):
-            # Silent fail agar log tidak penuh spam jika file belum terbuat
             self.logger.warning(f"CNN BRIDGE: File {path_in} not found. Skipping.")
             return pd.DataFrame()
 
         try:
-            df = pd.read_excel(path_in).fillna(0.0)
+            if path_in.lower().endswith(('.xls', '.xlsx')):
+                df = pd.read_excel(path_in).fillna(0.0)
+            elif path_in.lower().endswith('.csv'):
+                df = pd.read_csv(path_in).fillna(0.0)
+            else:
+                # try excel first, fallback to csv
+                try:
+                    df = pd.read_excel(path_in).fillna(0.0)
+                except Exception:
+                    df = pd.read_csv(path_in).fillna(0.0)
             return df
         except Exception as e:
-            self.logger.error(f"Gagal membaca LSTM bridge Excel: {e}")
+            self.logger.error(f"Gagal membaca LSTM bridge file {path_in}: {e}")
             return pd.DataFrame()
 
     # --------------------------------------------------------
@@ -351,7 +423,7 @@ class CNNEngine:
                     self.tensor_builder.construct_ground_truth(r) for _, r in train_samples.iterrows()
                 ])
             except Exception as e:
-                self.logger.error(f"CNN ERROR: Gagal membuat training tensors: {e}")
+                self.logger.exception("CNN ERROR: Gagal membuat training tensors")
                 X_train, y_train = None, None
 
         # --------------------------------------------------------
@@ -361,18 +433,14 @@ class CNNEngine:
 
         if model_exists:
             try:
-                # [FIX SYNTAX]: Menutup kurung dengan benar dan passing local custom objects
-                self.model = load_model(
-                    self.paths["model_file"],
-                    custom_objects={
-                        "dice_coef": dice_coef,
-                        "iou_score": iou_score
-                    }
-                ) 
+                self.model = load_model(self.paths["model_file"], compile=False)
+                # recompile with custom metrics
+                self.model.compile(optimizer=Adam(0.001), loss="binary_crossentropy", metrics=["accuracy", dice_coef, iou_score])
                 self.logger.info("Model CNN berhasil dimuat dari disk.")
             except Exception as e:
                 self.logger.warning(f"Model corrupt/incompatible → force rebuild. Error: {e}")
                 model_exists = False
+
         
         # Build New Model if needed
         if not model_exists or self.model is None:
@@ -421,6 +489,23 @@ class CNNEngine:
             if len(X_full) == 0:
                 df_main["Proporsi_Grid_Terdampak_CNN"] = 0.0
                 return df_main
+            if X_full.ndim != 4 or X_full.shape[-1] != self.input_channels:
+                self.logger.warning(
+                    f"Input channel mismatch: expected {self.input_channels}, "
+                    f"got {X_full.shape[-1] if X_full.ndim >= 4 else 'invalid shape'}"
+                )
+
+                fixed = np.zeros(
+                    (len(X_full), self.grid_size, self.grid_size, self.input_channels),
+                    dtype=np.float32
+                )
+
+                h = min(X_full.shape[1], self.grid_size)
+                w = min(X_full.shape[2], self.grid_size)
+                d = min(X_full.shape[3], self.input_channels)
+
+                fixed[:, :h, :w, :d] = X_full[:, :h, :w, :d]
+                X_full = fixed
 
             preds = self.model.predict(X_full, verbose=0)
             
@@ -440,7 +525,31 @@ class CNNEngine:
             # Visualization Sample (Last Valid Row)
             if n_safe > 0:
                 self.viz.visualize_last(preds[n_safe-1], df_main.iloc[n_safe-1])
+            # --------------------------------------------------------
+            # 5. SAVE CNN DIRECTION OUTPUT (TASK REQUIREMENT)
+            # --------------------------------------------------------
+            try:
+                if n_safe > 0:
+                    az, spread, conf = extract_direction_and_angle(preds[n_safe - 1])
 
+                    output_df = pd.DataFrame([{
+                        "timestamp": pd.Timestamp.now(),
+                        "arah_derajat": az,
+                        "sudut_sebaran": spread,
+                        "confidence": conf,
+                        "sumber": "CNN_ResUNet"
+                    }])
+
+                    out_path = self.paths.get("cnn_prediction_out")
+                    if out_path:
+                        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+                        output_df.to_csv(out_path, index=False)
+
+                        self.logger.info(
+                            f"CNN OUTPUT SAVED → Arah: {az:.2f}°, Sudut: {spread:.2f}, Conf: {conf:.3f}"
+                        )
+            except Exception as e:
+                self.logger.warning(f"Gagal menyimpan output CNN arah & sudut: {e}")
         except Exception as e:
              self.logger.critical(f"CNN CRASH PRED: Error saat prediksi: {e}")
              df_main["Proporsi_Grid_Terdampak_CNN"] = 0.0

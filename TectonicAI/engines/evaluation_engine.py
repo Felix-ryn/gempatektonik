@@ -186,20 +186,46 @@ class EvaluationEngine:
         self.logger.info("=== SAFE EVALUATION STARTED ===")
 
         # ------------------------------
-        # 1-3. DATA PREP & SPLIT
+        # SANITY: Reset index sehingga .iloc/.loc numerik konsisten
+        # ------------------------------
+        try:
+            df = df.reset_index(drop=True)
+        except Exception:
+            # Kalau gagal (sangat jarang), tetap lanjut tapi log exception
+            self.logger.exception("Gagal melakukan reset_index pada df — melanjutkan dengan index asli.")
+
+        # Pastikan train_idx / test_idx menjadi numpy int arrays dan valid
+        try:
+            train_idx = np.array(train_idx, dtype=int) if train_idx is not None else np.array([], dtype=int)
+        except Exception:
+            train_idx = np.array([], dtype=int)
+
+        try:
+            test_idx = np.array(test_idx, dtype=int) if test_idx is not None else np.array([], dtype=int)
+        except Exception:
+            test_idx = np.array([], dtype=int)
+
+        # Filter indices yang berada di rentang valid [0, len(df)-1]
+        if len(df) > 0:
+            train_idx = train_idx[(train_idx >= 0) & (train_idx < len(df))]
+            test_idx = test_idx[(test_idx >= 0) & (test_idx < len(df))]
+        else:
+            train_idx = np.array([], dtype=int)
+            test_idx = np.array([], dtype=int)
+
+        # ------------------------------
+        # 1-3. DATA PREP & SPLIT (SAFE)
         # ------------------------------
         labels = df.apply(self._label_rule_based, axis=1)
         y_encoded = self.encoder.transform(labels)
         X_raw = self._extract_features(df)
 
-        X_train = X_raw.loc[train_idx].values
-        X_test = X_raw.loc[test_idx].values
-        y_train = y_encoded[train_idx]
-        y_test = y_encoded[test_idx]
-    
-        X_train, y_train = self._sync_length(X_train, y_train)
-        X_test, y_test = self._sync_length(X_test, y_test)
-    
+        # Gunakan iloc (posisi) — lebih eksplisit dan aman
+        X_train = X_raw.iloc[train_idx].values if len(train_idx) > 0 else np.empty((0, X_raw.shape[1]))
+        X_test = X_raw.iloc[test_idx].values if len(test_idx) > 0 else np.empty((0, X_raw.shape[1]))
+        y_train = y_encoded[train_idx] if len(train_idx) > 0 else np.array([], dtype=int)
+        y_test = y_encoded[test_idx] if len(test_idx) > 0 else np.array([], dtype=int)
+
         # ------------------------------
         # 4. STANDARDIZATION & SYNTHETIC FIX (TRAIN PATH)
         # ------------------------------
@@ -208,11 +234,17 @@ class EvaluationEngine:
             df["Final_Prob_Impact"] = 0.0
             return df
 
-        self.scaler.fit(X_train)
-        X_train_std = self.scaler.transform(X_train)
+        # Standarisasi fitur (FIT HANYA DI TRAIN)
+        try:
+            self.scaler.fit(X_train)
+            X_train_std = self.scaler.transform(X_train)
+        except Exception as e:
+            self.logger.exception(f"Scaler fit/transform gagal: {e}")
+            X_train_std = X_train.copy()
+
+        # Inject synthetic samples jika single-class
         X_train_std, y_train = self._inject_synthetic_samples(X_train_std, y_train)
-    
-    
+
         # ------------------------------
         # 5. ROBUST MODEL TRAINING (Menciptakan successful_classifier)
         # ------------------------------
@@ -304,8 +336,10 @@ class EvaluationEngine:
             prob_parah = np.zeros(len(prob))
 
         df["Final_Prob_Impact"] = 0.0
-        df.loc[test_idx, "Final_Prob_Impact"] = prob_parah
 
+        # SAFE assignment by POSITION (bukan label index)
+        if len(test_idx) > 0:
+            df.iloc[test_idx, df.columns.get_loc("Final_Prob_Impact")] = prob_parah
         # ------------------------------
         # 8. METRICS + LOGGING
         # ------------------------------
