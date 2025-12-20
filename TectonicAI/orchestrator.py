@@ -290,14 +290,22 @@ class TectonicOrchestrator:
         try:
             lstm_path = self.config.get("lstm_anomaly_model", {})
             lstm = LSTMEngine(lstm_path)
-            train_context = df_dynamic.loc[train_idx] if not train_idx.empty else pd.DataFrame()
+
+            if isinstance(train_idx, np.ndarray) and train_idx.size > 0:
+                train_context = df_dynamic.loc[train_idx]
+            else:
+                train_context = pd.DataFrame()
+
             df_dynamic, lstm_res = lstm.run(df_dynamic, train_context)
+
             summary["lstm_anomalies_count"] = len(lstm_res.get("anomalies", []))
             self.logger.info("[ORCH] LSTM finished.")
+
         except Exception as e:
             self.logger.error(f"[ORCH] LSTM Error: {e}")
             for col in ["Temporal_Risk_Factor", "Model_Uncertainty", "is_Anomaly"]:
-                if col not in df_dynamic.columns: df_dynamic[col] = 0.0 if col != "is_Anomaly" else False
+                if col not in df_dynamic.columns:
+                    df_dynamic[col] = 0.0 if col != "is_Anomaly" else False
 
         # --- D. CNN (Spatial Analysis) ---
         try:
@@ -323,8 +331,13 @@ class TectonicOrchestrator:
         # PHASE 6: FINAL OUTPUT (Hanya Data Live Terbaru)
         # ======================================================
         
-        df_final_live = df_dynamic.loc[test_idx].copy()
-        
+        df_final_live = (
+            df_dynamic[df_dynamic["Data_Source"] == "LIVE_HISTORYS"]
+            .sort_values("Tanggal")
+            .tail(len(test_idx))
+            .copy()
+        )
+
         last_ts = "N/A"
         if "Tanggal" in df_final_live.columns and not df_final_live.empty:
             last_ts = str(df_final_live["Tanggal"].iloc[-1])

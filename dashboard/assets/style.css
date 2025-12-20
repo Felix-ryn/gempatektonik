@@ -1,0 +1,170 @@
+﻿/* -*- coding: utf-8 -*-
+/* =========================================================
+   GLOBAL DASHBOARD STYLE
+   Integrated Seismic Intelligence System
+   ========================================================= */
+/* -------------------------
+   ROOT VARIABLES
+-------------------------- */
+:root {
+    --primary-color: #1f4fd8;
+    --secondary-color: #0f172a;
+    --accent-color: #f59e0b;
+    --bg-main: #f8fafc;
+    --bg-card: #ffffff;
+    --text-main: #0f172a;
+    --text-muted: #64748b;
+    --border-soft: #e5e7eb;
+    --shadow-soft: 0 4px 12px rgba(0, 0, 0, 0.06);
+    --radius-lg: 14px;
+    --radius-md: 10px;
+    --radius-sm: 6px;
+}
+
+/* -------------------------
+   PAGE BACKGROUND
+-------------------------- */
+html, body, .stApp {
+    background-color: var(--bg-main);
+    color: var(--text-main);
+    font-family: "Inter", "Segoe UI", sans-serif;
+}
+
+/* =========================================================
+   SIDEBAR
+   ========================================================= */
+section[data-testid="stSidebar"] {
+    background-color: var(--secondary-color);
+}
+
+    section[data-testid="stSidebar"] * {
+        color: #e5e7eb;
+    }
+
+    section[data-testid="stSidebar"] h1,
+    section[data-testid="stSidebar"] h2,
+    section[data-testid="stSidebar"] h3 {
+        color: #ffffff;
+    }
+
+/* =========================================================
+   HEADERS & TITLES
+   ========================================================= */
+h1 {
+    font-weight: 700;
+    margin-bottom: 0.3em;
+}
+
+h2, h3 {
+    font-weight: 600;
+}
+
+/* =========================================================
+   SUMMARY CARDS (KPI)
+   ========================================================= */
+.summary-card {
+    background-color: var(--bg-card);
+    border-radius: var(--radius-lg);
+    padding: 1.2rem 1.4rem;
+    box-shadow: var(--shadow-soft);
+    border: 1px solid var(--border-soft);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+    .summary-card:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+    }
+
+.summary-title {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    margin-bottom: 0.4rem;
+}
+
+.summary-value {
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: var(--primary-color);
+}
+
+.summary-sub {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+/* =========================================================
+   CHART CONTAINERS
+   ========================================================= */
+.chart-container {
+    background-color: var(--bg-card);
+    border-radius: var(--radius-lg);
+    padding: 1rem 1.2rem;
+    border: 1px solid var(--border-soft);
+    box-shadow: var(--shadow-soft);
+    margin-bottom: 1.5rem;
+}
+
+/* =========================================================
+   MAP VIEW
+   ========================================================= */
+.map-container {
+    background-color: var(--bg-card);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-soft);
+    box-shadow: var(--shadow-soft);
+    overflow: hidden;
+}
+
+/* =========================================================
+   ANOMALY STATUS TAGS
+   ========================================================= */
+.tag-normal {
+    display: inline-block;
+    padding: 0.25rem 0.6rem;
+    border-radius: var(--radius-sm);
+    font-size: 0.75rem;
+    font-weight: 600;
+    background-color: #dcfce7;
+    color: #166534;
+}
+
+.tag-warning {
+    display: inline-block;
+    padding: 0.25rem 0.6rem;
+    border-radius: var(--radius-sm);
+    font-size: 0.75rem;
+    font-weight: 600;
+    background-color: #fef3c7;
+    color: #92400e;
+}
+
+.tag-critical {
+    display: inline-block;
+    padding: 0.25rem 0.6rem;
+    border-radius: var(--radius-sm);
+    font-size: 0.75rem;
+    font-weight: 600;
+    background-color: #fee2e2;
+    color: #991b1b;
+}
+
+/* =========================================================
+   DATAFRAME STYLING
+   ========================================================= */
+div[data-testid="stDataFrame"] {
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    border: 1px solid var(--border-soft);
+}
+
+/* =========================================================
+   FOOTER
+   ========================================================= */
+footer, .footer {
+    text-align: center;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-top: 2rem;
+    padding-bottom: 1rem;
+}

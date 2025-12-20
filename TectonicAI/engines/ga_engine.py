@@ -5,7 +5,7 @@ Module: Evolutionary Tectonic Vector Prediction System.
 Architecture: Multi-Island Distributed Genetic Algorithm (MIGA).
 Core Task: Predict the propagation vector (Angle & Distance) of tectonic stress.
 """
-
+import json
 import numpy as np
 import pandas as pd
 import logging
@@ -706,6 +706,9 @@ class GAEngine:
             "ga_state": os.path.join(
                 base_path, "ga_results/ga_state.pkl"
             ),
+            "ga_summary_json": os.path.join(
+                base_path, "ga_results/ga_summary.json"
+            ),
         }
 
         os.makedirs(
@@ -958,7 +961,20 @@ class GAEngine:
                 "fitness": float(last["Fitness"]),
                 "generation": int(last["Generation"]),
             }
+        try:
+            summary_path = self.output_paths["ga_summary_json"]
+            with open(summary_path, "w", encoding="utf-8") as f:
+                json.dump(ga_summary, f, indent=4)
+            self.logger.info(f"[GA] Summary JSON updated: {summary_path}")
+        except Exception as e:
+            self.logger.error(f"[GA] Gagal menulis ga_summary.json: {e}")
 
+        return df, {
+            "vector_data": (
+                self.history_log[-1] if self.history_log else None
+            ),
+            "ga_summary": ga_summary,
+        }
         return df, {
             "vector_data": (
                 self.history_log[-1] if self.history_log else None

@@ -36,6 +36,41 @@ try:
 except ImportError:
     HAS_TF = False
 
+# --- SAFETY / UTILS ---
+def is_empty(obj) -> bool:
+    """
+    Safe emptiness check for pandas DataFrame/Series, numpy arrays, lists/tuples, and None.
+    Returns True if object is "empty".
+    """
+    if obj is None:
+        return True
+
+    # pandas objects
+    try:
+        import pandas as _pd
+        if isinstance(obj, (_pd.DataFrame, _pd.Series)):
+            return obj.empty
+    except Exception:
+        # if pandas not available or other error -> fallback
+        pass
+
+    # numpy arrays and array-like
+    try:
+        import numpy as _np
+        if isinstance(obj, (_np.ndarray,)):
+            return obj.size == 0
+        # try to convert to array (safe)
+        arr = _np.asarray(obj)
+        return arr.size == 0
+    except Exception:
+        pass
+
+    # general container fallback
+    try:
+        return len(obj) == 0
+    except Exception:
+        return False
+
 
 # ============================================================
 #  HELPER: SYNC PANJANG ARRAY (TRIM KE MINIMUM)
@@ -158,7 +193,10 @@ class LSTMEngine:
             'model_file': os.path.join(base_path, 'lstm_results/hybrid_transformer_lstm.keras'),
             'loss_plot': os.path.join(base_path, 'lstm_results/training_loss.png'),
             'logs_dir': os.path.join(base_path, 'lstm_results/logs'),
-            'metadata': os.path.join(base_path, 'lstm_results/training_metadata.json')
+            'metadata': os.path.join(base_path, 'lstm_results/training_metadata.json'),
+
+            'feature_importance': os.path.join(base_path, 'lstm_results/feature_importance.csv'),
+            'feature_importance_json': os.path.join(base_path, 'lstm_results/feature_importance.json'),
         }
 
         self._ensure_directories()
@@ -241,7 +279,7 @@ class LSTMEngine:
         if os.path.exists(self.paths['ga_in']):
             try:
                 df_ga = pd.read_excel(self.paths['ga_in'])
-                if not df_ga.empty:
+                if not is_empty(df_ga):
                     last_rec = df_ga.iloc[-1]
                     
                     fit_key = next((c for c in last_rec.index if 'Fitness' in c), None)
@@ -295,27 +333,6 @@ class LSTMEngine:
             df['ACO_GA_Relation_Score'] = 0.0
 
         return df.fillna(0)
-
-    def _generate_relationship_narrative(self, row: pd.Series) -> str:
-        """
-        Menghasilkan kalimat hubungan ACO-GA yang bisa dibaca manusia.
-        """
-        try:
-            radius = row.get('Context_Impact_Radius', 0)
-            status = row.get('Context_Zone_Status', 'Unknown')
-            arah = row.get('GA_Direction_Pred', 'Unknown')
-            sudut = row.get('GA_Angle_Pred', 0)
-            dist = row.get('Dist_To_GA_Pred', 0)
-            score = row.get('ACO_GA_Relation_Score', 0.0)
-            
-            narrative = (
-                f"Relasi Score: {score:.2f}. Zona {status} (Radius ACO: {radius:.1f} KM). "
-                f"Hubungan GA: Berjarak {dist:.1f} KM dari pusat prediksi. "
-                f"Arah pergerakan referensi GA adalah {arah} dengan sudut {sudut:.1f} derajat."
-            )
-            return narrative
-        except Exception:
-            return "Data hubungan tidak lengkap."
 
     def _generate_relationship_narrative(self, row: pd.Series) -> str:
         """
@@ -446,7 +463,7 @@ class LSTMEngine:
         Menghasilkan mean prediction dan uncertainty score per timestep.
         """
 
-        if X_data is None or len(X_data) == 0:
+        if is_empty(X_data):
             self.logger.warning("MC Prediction: X_data kosong, skip Bayesian inference.")
             return (
                 np.empty((0, 0), dtype=np.float32),
@@ -563,7 +580,19 @@ class LSTMEngine:
 
         except Exception as e:
             self.logger.warning(f"Feature importance gagal: {e}")
-
+        
+        # Save CSV + JSON (atomic replace recommended)
+        try:
+            if 'feature_importance' in self.paths:
+                tmp_path = self.paths['feature_importance'] + '.tmp'
+                imp_df.to_csv(tmp_path, index=False)
+                os.replace(tmp_path, self.paths['feature_importance'])
+                self.logger.info(f"Feature importance saved: {self.paths['feature_importance']}")
+            if 'feature_importance_json' in self.paths:
+                meta = {'generated_at': datetime.now().isoformat(), 'n_features': len(feature_names)}
+                imp_df.to_json(self.paths['feature_importance_json'], orient='records', indent=2)
+        except Exception as e:
+            self.logger.warning(f"Failed saving feature importance: {e}")
     # ========================================================
     # 4. MAIN RUN PIPELINE (SAFE)
     # ========================================================
@@ -681,8 +710,10 @@ class LSTMEngine:
         # --- STEP 5: Full Inference --- #
         X_full, _ = self._prepare_tensor_data(data_values, augment=False)
 
-        if len(X_full) == 0:
+        if is_empty(X_full):
+            self.logger.warning("LSTM: X_full kosong → skip inference.")
             return df, {"anomalies": df.iloc[0:0]}
+
 
         # Feature importance (optional, safe)
         try:
@@ -827,7 +858,7 @@ class LSTMEngine:
                     df_anom[col] = default
 
             # --- A. Anomalies CSV (Untuk Laporan Cepat) ---
-            if not df_anom.empty:
+            if not is_empty(df_anom):
                 # Menambahkan konteks ACO/GA di report anomali juga
                 cols_anom = ['Tanggal', 'Lokasi', 'Magnitudo', 'Kedalaman_km',
                              'Temporal_Risk_Factor', 'Model_Uncertainty', 
@@ -853,7 +884,7 @@ class LSTMEngine:
                 self._generate_relationship_narrative, axis=1
             )
 
-            if not df_anom.empty:
+            if not is_empty(df_anom):
                 df_anom['Relationship_Narrative'] = df_anom.apply(
                 self._generate_relationship_narrative, axis=1
             )
@@ -884,7 +915,7 @@ class LSTMEngine:
 
                     df_15_days = df_full[df_full['Tanggal'] >= cutoff_15].copy()
 
-                    if not df_15_days.empty:
+                    if not is_empty(df_15_days):
                         export_15_cols = [
                             'Tanggal', 'Lokasi', 'Magnitudo', 'Kedalaman_km',
                             'LSTM_Error', 'Temporal_Risk_Factor', 'Model_Uncertainty', 'is_Anomaly',
