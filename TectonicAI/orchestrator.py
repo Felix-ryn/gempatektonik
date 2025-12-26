@@ -8,27 +8,27 @@
 #     summary (dict ringkasan untuk dashboard/monitoring)
 # ============================================================
 
-import os
-import logging
-import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta
-from typing import Tuple, Dict, Any, List
+import os                              # Digunakan untuk operasi filesystem (path, mkdir, cek file)
+import logging                         # Sistem logging runtime (INFO, WARNING, ERROR)
+import pandas as pd                    # Struktur data utama (DataFrame) untuk pipeline AI
+import numpy as np                     # Operasi numerik & indexing (train/test index)
+from datetime import datetime, timedelta  # Timestamp, cutoff waktu 90 hari
+from typing import Tuple, Dict, Any, List  # Type hinting agar kode lebih aman & jelas
 
 # ============================================================
 # IMPORT INTERNAL MODULES (Asumsi path sudah diatur)
 # ============================================================
-from TectonicAI.config import CONFIG
-from TectonicAI.processing.data_handler import load_data
-from TectonicAI.services.inaTEWS_api_client import InaTEWSApiClient
+from TectonicAI.config import CONFIG   # Konfigurasi global (paths, model config, realtime config)
+from TectonicAI.processing.data_handler import load_data  # Loader CSV/Excel dengan handling aman
+from TectonicAI.services.inaTEWS_api_client import InaTEWSApiClient  # Client API BMKG/InaTEWS
 
 try:
-    from TectonicAI.features.feature_engineer import FeatureEngineer
-    from TectonicAI.engines.aco_engine import ACOEngine
-    from TectonicAI.engines.ga_engine import GAEngine
-    from TectonicAI.engines.lstm_engine import LSTMEngine
-    from TectonicAI.engines.cnn_engine import CNNEngine
-    from TectonicAI.engines.evaluation_engine import EvaluationEngine
+    from TectonicAI.features.feature_engineer import FeatureEngineer   # Feature engineering (temporal & seismic)
+    from TectonicAI.engines.aco_engine import ACOEngine                # Ant Colony Optimization (zonasi risiko)
+    from TectonicAI.engines.ga_engine import GAEngine                  # Genetic Algorithm (jalur & stres spasial)
+    from TectonicAI.engines.lstm_engine import LSTMEngine              # Model temporal anomaly detection
+    from TectonicAI.engines.cnn_engine import CNNEngine                # Model spasial grid-based (impact map)
+    from TectonicAI.engines.evaluation_engine import EvaluationEngine  # Final fusion & probability evaluator
 except ImportError as e:
     print(f"[CRITICAL ERROR] Engine import gagal: {e}")
     # Placeholder classes jika modul belum ada saat testing isolasi

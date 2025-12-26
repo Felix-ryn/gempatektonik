@@ -834,7 +834,7 @@ class LSTMEngine:
 
     def _save_outputs(self, df_full, df_anom):
         """
-        REVISI: Menyimpan output sesuai request client.
+  
         Isi: Data 2 tahun terakhir, data terbaru (termasuk 15 hari), anomaly.
         Columns: Wajib ada kolom dari ACO dan GA.
         """
