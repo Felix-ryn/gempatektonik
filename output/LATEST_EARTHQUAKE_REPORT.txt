@@ -1,13 +1,13 @@
-
+                          # Membuat isi laporan teks menggunakan f-string
 ========================= TECTONIC AI REPORT =========================
-Waktu Pemrosesan: 2025-12-24 17:54:01
+Waktu Pemrosesan: 2026-01-03 19:04:46
 Tanggal Gp    : 2025-11-24 03:40:21
-Lokasi        : 141 km BaratDaya KAB-BLITAR-JATIM
+Lokasi        : 141 Km Baratdaya Kab-Blitar-Jatim
 Magnitude     : 5.20
 Kedalaman     : 10.0 km
 
 Zonasi ACO    : Aman
 LSTM          : NORMAL
-CNN Impact    : 92.15 %
+CNN Impact    : 0.00 %
 Final Prob    : 0.0 %
 ======================================================================

@@ -21,7 +21,7 @@ try:
     from tensorflow.keras.layers import (
         Input, Conv2D, MaxPooling2D,
         Conv2DTranspose, concatenate,
-        BatchNormalization, Activation, Add, Dropout
+        BatchNormalization, Activation, Add, Dropout, GlobalAveragePooling2D, Dense, Softmax
     )
     from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, CSVLogger
     from tensorflow.keras.optimizers import Adam
@@ -95,6 +95,10 @@ def extract_direction_and_angle(mask: np.ndarray) -> Tuple[float, float, float]:
     return float(azimuth), float(spread), confidence
 
 
+# ============================================================
+#  METRICS (Dice & IoU tetap ada utk kompatibilitas load model)
+# ============================================================
+
 def dice_coef(y_true, y_pred, smooth=1e-6):
     y_true_f = tf.reshape(y_true, [-1])
     y_pred_f = tf.reshape(y_pred, [-1])
@@ -133,23 +137,48 @@ class TensorConstructor:
 
     def construct_input_tensor(self, row: pd.Series) -> np.ndarray:
         gs = self.grid_size
-        
-        kedalaman_safe = row.get("Kedalaman_km", 0)
-        log_depth = np.log1p(kedalaman_safe) if kedalaman_safe > -1 else 0.0
-        
-        # Channel Construction (Safe Map)
-        c1 = np.full((gs, gs), self._safe_map(row.get("Magnitudo"), 1/10), dtype=np.float32)
-        c2 = np.full((gs, gs), self._safe_map(log_depth), dtype=np.float32)
-        c3 = np.full((gs, gs), self._safe_map(row.get("Context_Risk_Pheromone")), dtype=np.float32)
-        c4 = np.full((gs, gs), np.clip(self._safe_map(row.get("Temporal_Risk_Factor")), 0, 1), dtype=np.float32)
-        c5 = np.full((gs, gs), self._safe_map(row.get("Cluster"), 1/10), dtype=np.float32)
 
-        stacked = np.stack([c1, c2, c3, c4, c5], axis=-1)
+        # --- Ambil nilai ACO
+        cx_rel = float(row.get("ACO_center_x", 0.5))
+        cy_rel = float(row.get("ACO_center_y", 0.5))
+        impact_radius_km = float(row.get("Context_Impact_Radius", row.get("R_true", 0.0)))
 
-        # Safety Check Dimension
+        # LSTM output scalar
+        lstm_feat = float(row.get("LSTM_pred", 0.0))
+
+        # Magnitude & log depth
+        mag = float(row.get("Magnitudo", 0.0))
+        kedalaman_safe = float(row.get("Kedalaman_km", 0.0))
+        log_depth = np.log1p(abs(kedalaman_safe)) if kedalaman_safe is not None else 0.0
+
+        # Channel 1: ACO center map
+        xv, yv = np.meshgrid(np.linspace(0,1,gs), np.linspace(0,1,gs))
+        sigma = max(1e-3, (impact_radius_km / 100.0) * 0.5 + 0.01)
+        center_map = np.exp(-((xv - cx_rel)**2 + (yv - cy_rel)**2) / (2*sigma*sigma)).astype(np.float32)
+
+        # Channel 2: ACO area mask
+        km_per_unit = 100.0 / gs
+        pixel_radius = np.clip(impact_radius_km / km_per_unit, 0, gs)
+        cx_pixel = int(cx_rel * (gs-1))
+        cy_pixel = int(cy_rel * (gs-1))
+        y_idx, x_idx = np.ogrid[:gs, :gs]
+        dist = np.sqrt((x_idx - cx_pixel)**2 + (y_idx - cy_pixel)**2)
+        area_map = (dist <= pixel_radius).astype(np.float32)
+
+        # Channel 3: LSTM feature
+        c_lstm = np.full((gs, gs), np.clip(lstm_feat, -1e3, 1e3), dtype=np.float32)
+
+        # Channel 4: Magnitude normalized
+        c_mag = np.full((gs, gs), np.clip(mag / 10.0, 0.0, 10.0), dtype=np.float32)
+
+        # Channel 5: log depth broadcast
+        c_depth = np.full((gs, gs), log_depth, dtype=np.float32)
+
+        # --- Stack 5 channel saja
+        stacked = np.stack([center_map, area_map, c_lstm, c_mag, c_depth], axis=-1)
+
+        # Safety dimension fix
         if stacked.shape != (gs, gs, 5):
-            # self.logger.warning(f"Auto-resizing tensor from {stacked.shape} to {(gs,gs,5)}")
-            # Slice/Pad safely if dimensions mismatch
             fixed = np.zeros((gs, gs, 5), dtype=np.float32)
             h = min(gs, stacked.shape[0])
             w = min(gs, stacked.shape[1])
@@ -159,31 +188,29 @@ class TensorConstructor:
 
         return stacked.astype(np.float32)
 
-    def construct_ground_truth(self, row: pd.Series) -> np.ndarray:
-        gs = self.grid_size
-        mask = np.zeros((gs, gs), dtype=np.float32)
 
-        rad = row.get("Context_Impact_Radius", row.get("R_true", 0.0))
+    def construct_ground_truth(self, row: pd.Series) -> Dict[str, np.ndarray]:
+        """
+        Output ground truth untuk SimpleCNN_SimpleHead:
+        - dir_output: one-hot 4 class (timur, barat, selatan, utara)
+        - angle_output: scalar sudut 0-1
+        """
+        # Ambil arah dari data (jika ada)
+        arah_label = row.get("Arah_Class", 0)  # 0=Timur,1=Barat,2=Selatan,3=Utara
+        if arah_label not in [0,1,2,3]:
+            arah_label = 0
+        dir_onehot = np.zeros(4, dtype=np.float32)
+        dir_onehot[int(arah_label)] = 1.0
 
-        try:
-            rad = float(rad)
-            if np.isnan(rad) or rad < 0:
-                rad = 0
-        except:
-            rad = 0
+        # Ambil sudut derajat dari data, ubah ke 0-1
+        sudut_deg = float(row.get("Arah_Derajat", 0.0)) % 360.0
+        angle_norm = np.array([sudut_deg / 360.0], dtype=np.float32)
 
-        if rad <= 0:
-            return mask[..., None]
+        return {
+            "dir_output": dir_onehot,
+            "angle_output": angle_norm
+        }
 
-        km_per_pixel = 100.0 / gs
-        pixel_radius = rad / km_per_pixel
-
-        cx = cy = gs // 2
-        y, x = np.ogrid[:gs, :gs]
-        dist = np.sqrt((x - cx) ** 2 + (y - cy) ** 2)
-
-        mask[dist <= pixel_radius] = 1.0
-        return mask[..., None]
 
 
 # ============================================================
@@ -191,62 +218,43 @@ class TensorConstructor:
 # ============================================================
 
 class CNNModelArchitect:
-    from tensorflow.keras import backend as K
-
-    def _res_block(self, x, filters):
-        shortcut = x
-
-        x = Conv2D(filters, 3, padding="same")(x)
+    def _conv_block(self, x, filters):
+        """Satu blok Conv2D -> ReLU -> BatchNorm -> MaxPool"""
+        x = Conv2D(filters, 3, padding="same", activation="relu")(x)
         x = BatchNormalization()(x)
-        x = Activation("relu")(x)
-
-        x = Conv2D(filters, 3, padding="same")(x)
-        x = BatchNormalization()(x)
-
-        sc_channels = K.int_shape(shortcut)[-1]
-        if sc_channels is None or sc_channels != filters:
-            shortcut = Conv2D(filters, 1, padding="same")(shortcut)
-
-        x = Add()([x, shortcut])
-        x = Activation("relu")(x)
+        x = MaxPooling2D()(x)
         return x
 
-
-    # [FIX] Renamed to build_model to match caller expectation
-    def build_model(self, params: Dict = None, input_shape=None):
-        if input_shape is None:
-            # Fallback jika input_shape tidak disediakan: (grid_size, grid_size, 5)
-            gs = params.get("grid_size", 32) if params else 32
-            input_shape = (gs, gs, 5)
-
-        inputs = Input(input_shape)
-
-        c1 = self._res_block(inputs, 16)
-        p1 = MaxPooling2D()(c1)
-
-        c2 = self._res_block(p1, 32)
-        p2 = MaxPooling2D()(c2)
-
-        c3 = self._res_block(p2, 64)
-        c3 = Dropout(0.15)(c3)
-
-        u4 = Conv2DTranspose(32, 2, strides=2, padding="same")(c3)
-        u4 = concatenate([u4, c2])
-        c4 = self._res_block(u4, 32)
-
-        u5 = Conv2DTranspose(16, 2, strides=2, padding="same")(c4)
-        u5 = concatenate([u5, c1])
-        c5 = self._res_block(u5, 16)
-
-        outputs = Conv2D(1, 1, activation="sigmoid")(c5)
-
-        model = Model(inputs, outputs)
+    def build_model(self, input_shape=(32,32,5), hidden_nodes=[128,64], use_mask=False) -> tf.keras.Model:
+        inp = Input(shape=input_shape, name="cnn_input")
+        x = inp
         
-        # Compile menggunakan fungsi metrik lokal agar independen
+        # Satu blok Conv sederhana
+        x = Conv2D(32, 3, padding="same", activation="relu")(x)
+        x = BatchNormalization()(x)
+        x = MaxPooling2D()(x)
+
+        x = Conv2D(64, 3, padding="same", activation="relu")(x)
+        x = BatchNormalization()(x)
+        x = MaxPooling2D()(x)
+
+        # Flatten untuk dense layers
+        x_flat = GlobalAveragePooling2D()(x)
+
+        for nodes in hidden_nodes:
+            x_flat = Dense(nodes, activation="relu")(x_flat)
+            x_flat = Dropout(0.2)(x_flat)
+
+        # Output 1: arah (4 kelas)
+        dir_out = Dense(4, activation="softmax", name="dir_output")(x_flat)
+        # Output 2: sudut (regression)
+        angle_out = Dense(1, activation="linear", name="angle_output")(x_flat)
+
+        model = Model(inputs=inp, outputs=[dir_out, angle_out], name="SimpleCNN_SimpleHead")
         model.compile(
             optimizer=Adam(0.001),
-            loss="binary_crossentropy",
-            metrics=["accuracy", dice_coef, iou_score],
+            loss=["categorical_crossentropy", "mse"],
+            metrics=["accuracy"]
         )
         return model
 
@@ -415,16 +423,16 @@ class CNNEngine:
         y_train = None
 
         if len(train_samples) > 0:
-            try:
-                X_train = np.array([
-                    self.tensor_builder.construct_input_tensor(r) for _, r in train_samples.iterrows()
-                ])
-                y_train = np.array([
-                    self.tensor_builder.construct_ground_truth(r) for _, r in train_samples.iterrows()
-                ])
-            except Exception as e:
-                self.logger.exception("CNN ERROR: Gagal membuat training tensors")
-                X_train, y_train = None, None
+            X_train = np.array([self.tensor_builder.construct_input_tensor(r) for _, r in train_samples.iterrows()])
+
+            # y_train_dict harus dictionary 2 output
+            y_train_dict = {
+                "dir_output": np.array([self.tensor_builder.construct_ground_truth(r)["dir_output"]
+                                        for _, r in train_samples.iterrows()]),
+                "angle_output": np.array([self.tensor_builder.construct_ground_truth(r)["angle_output"]
+                                          for _, r in train_samples.iterrows()])
+            }
+
 
         # --------------------------------------------------------
         # 3. MODEL MANAGEMENT (Load vs Rebuild)
@@ -434,124 +442,152 @@ class CNNEngine:
         if model_exists:
             try:
                 self.model = load_model(self.paths["model_file"], compile=False)
-                # recompile with custom metrics
-                self.model.compile(optimizer=Adam(0.001), loss="binary_crossentropy", metrics=["accuracy", dice_coef, iou_score])
-                self.logger.info("Model CNN berhasil dimuat dari disk.")
+                # Pastikan model memiliki 2 output
+                if not isinstance(self.model.output, list) or len(self.model.output) != 2:
+                    self.logger.warning("Model lama tidak kompatibel → rebuild required.")
+                    self.model = None
+                    model_exists = False
+                else:
+                    # Recompile dengan metrics custom
+                    self.model.compile(
+                        optimizer=Adam(0.001),
+                        loss=["categorical_crossentropy", "mse"],
+                        metrics={"dir_output": "accuracy", "angle_output": "mae"}
+                    )
+                    self.logger.info("Model CNN berhasil dimuat dari disk dan valid.")
             except Exception as e:
                 self.logger.warning(f"Model corrupt/incompatible → force rebuild. Error: {e}")
+                self.model = None
                 model_exists = False
 
-        
-        # Build New Model if needed
         if not model_exists or self.model is None:
             self.logger.info("Membangun ulang model CNN dari awal...")
-            
-            # Panggil build_model (parameter params & shape input explicit)
+
+            # Sesuai catatan client: 5 input, hidden 2–3 layer, output 2 node
             self.model = self.architect.build_model(
-                params=self.cnn_cfg, 
-                input_shape=(self.grid_size, self.grid_size, self.input_channels)
+                input_shape=(self.grid_size, self.grid_size, self.input_channels),  # 5 channel
+                hidden_nodes=[128, 64]  # atau [128,64,32] bebas
             )
 
-            # TRAIN Loop (hanya jika data cukup)
-            if X_train is not None and len(X_train) >= 5: # Threshold minimal 5 sampel
-                self.logger.info(f"Training CNN on {len(X_train)} samples...")
-                
-                try:
-                    self.model.fit(
-                        X_train, y_train,
-                        batch_size=self.batch_size, 
-                        epochs=self.epochs, 
-                        validation_split=0.2,
-                        callbacks=[
-                            EarlyStopping(monitor='loss', patience=3, restore_best_weights=True, verbose=0),
-                            ModelCheckpoint(self.paths["model_file"], save_best_only=True, verbose=0),
-                            CSVLogger(self.paths["training_log"], append=True)
-                        ],
-                        verbose=0
-                    )
-                except Exception as e:
-                    self.logger.error(f"CNN Training Failed: {e}")
-            else:
-                self.logger.warning("Data training < 5. Model menggunakan bobot random (untrained).")
+            # Compile dengan loss sesuai output
+            self.model.compile(
+                optimizer=Adam(0.001),
+                loss=["categorical_crossentropy", "mse"],
+                metrics={"dir_output": "accuracy", "angle_output": "mae"}
+            )
+
+        # --------------------------------------------------------
+        # 5. TRAINING LOOP (SISIPKAN INI)
+        # Bagian ini wajib ada supaya training_log.csv terupdate
+        # --------------------------------------------------------
+        if X_train is not None and len(X_train) >= 2:
+            self.logger.info(f"CNN DEBUG: [Step 4] Training Start ({self.epochs} epochs)...")
+            
+            # Definisi Callbacks
+            callbacks_list = [
+                # Simpan model terbaik
+                ModelCheckpoint(self.paths["model_file"], save_best_only=True, verbose=0),
+                # CATAT LOG TRAINING (Ini yang Anda cari)
+                CSVLogger(self.paths["training_log"], append=True) 
+            ]
+            
+            try:
+                # Lakukan Training
+                self.model.fit(
+                    X_train, y_train_dict,
+                    batch_size=self.batch_size,
+                    epochs=self.epochs,
+                    verbose=0,
+                    callbacks=callbacks_list
+                )
+                self.logger.info("CNN DEBUG: Training selesai, log tersimpan.")
+            except Exception as e:
+                self.logger.error(f"CNN Training Error: {e}")
+        else:
+            self.logger.warning("CNN DEBUG: Data training tidak cukup (<2 samples), skip training.")
 
         # --------------------------------------------------------
         # 4. PREDICTION PHASE
         # --------------------------------------------------------
-        self.logger.info("CNN DEBUG: [Step 5] Prediksi pada Full Data.")
-        
         try:
-            # Gunakan df_main sebagai target prediksi (karena ini output yang direquest orchestrator)
-            X_full = np.array([
-                self.tensor_builder.construct_input_tensor(r)
-                for _, r in df_main.iterrows()
-            ])
+            self.logger.info("CNN DEBUG: [Step 5] Prediksi pada Full Data.")
 
-            if len(X_full) == 0:
-                df_main["Proporsi_Grid_Terdampak_CNN"] = 0.0
-                return df_main
+            X_full = np.array([self.tensor_builder.construct_input_tensor(r)
+                               for _, r in df_main.iterrows()])
+
+            # Safety fix shape
             if X_full.ndim != 4 or X_full.shape[-1] != self.input_channels:
-                self.logger.warning(
-                    f"Input channel mismatch: expected {self.input_channels}, "
-                    f"got {X_full.shape[-1] if X_full.ndim >= 4 else 'invalid shape'}"
-                )
-
-                fixed = np.zeros(
-                    (len(X_full), self.grid_size, self.grid_size, self.input_channels),
-                    dtype=np.float32
-                )
-
+                fixed = np.zeros((len(X_full), self.grid_size, self.grid_size, self.input_channels), dtype=np.float32)
                 h = min(X_full.shape[1], self.grid_size)
                 w = min(X_full.shape[2], self.grid_size)
                 d = min(X_full.shape[3], self.input_channels)
-
                 fixed[:, :h, :w, :d] = X_full[:, :h, :w, :d]
                 X_full = fixed
 
             preds = self.model.predict(X_full, verbose=0)
+
+            # Validasi output model
+            if not isinstance(preds, (list, tuple)) or len(preds) != 2:
+                self.logger.critical(f"CNN CRASH: Output model tidak sesuai.")
+                return df_main
+
+            pred_dir_probs, pred_angle_norm = preds
+
+            # Ambil data baris terakhir untuk disimpan sebagai state terkini
+            last_idx = -1
             
-            # Menghitung proporsi dampak (rata-rata pixel mask > 0)
-            # Karena activation sigmoid, ini adalah probabilitas rata-rata
-            impact_scores = np.mean(preds, axis=(1, 2, 3))
+            # 1. Output Arah (4 Sumbu)
+            dir_probs = pred_dir_probs[last_idx]
+            arah_idx = np.argmax(dir_probs)
+            # Mapping 4 sumbu
+            dir_map = {0: "Timur", 1: "Barat", 2: "Selatan", 3: "Utara"} 
+            arah_str = dir_map.get(arah_idx, "Unknown")
+            
+            # 2. Output Sudut
+            az = float(pred_angle_norm.flatten()[last_idx]) * 360.0
 
-            # Sync panjang array untuk menghindari Broadcast Error
-            impact_scores, = sync_len(impact_scores)
-            n_safe = min(len(df_main), len(impact_scores))
+            # 3. Output Risiko (k) sebagai ARRAY [PERBAIKAN UTAMA]
+            # Client minta risiko (k) dibuat array. Kita ambil max probability sebagai confidence.
+            conf_val = float(np.max(dir_probs))
+            risk_array = np.array([conf_val]) # <-- DIBUAT ARRAY SESUAI REQUEST
 
-            # Assignment dengan slicing aman
-            df_main["Proporsi_Grid_Terdampak_CNN"] = 0.0
-            # [FIX] Assignment menggunakan iloc/loc yang alignment-safe
-            df_main.iloc[:n_safe, df_main.columns.get_loc("Proporsi_Grid_Terdampak_CNN")] = impact_scores[:n_safe]
+            # Simpan ke CSV
+            output_df = pd.DataFrame([{
+                "timestamp": pd.Timestamp.now(),
+                "arah_prediksi": arah_str,
+                "arah_derajat": az,
+                "risk_k_array": str(risk_array.tolist()), 
+                "confidence_scalar": conf_val,
+                "sumber": "CNN_Simple_Adaptive"
+            }])
 
-            # Visualization Sample (Last Valid Row)
-            if n_safe > 0:
-                self.viz.visualize_last(preds[n_safe-1], df_main.iloc[n_safe-1])
-            # --------------------------------------------------------
-            # 5. SAVE CNN DIRECTION OUTPUT (TASK REQUIREMENT)
-            # --------------------------------------------------------
-            try:
-                if n_safe > 0:
-                    az, spread, conf = extract_direction_and_angle(preds[n_safe - 1])
+            out_path = self.paths.get("cnn_prediction_out")
+            if out_path:
+                os.makedirs(os.path.dirname(out_path), exist_ok=True)
+                
+                # Cek apakah file sudah ada. Jika sudah, append tanpa header.
+                # Jika belum, buat baru dengan header.
+                file_exists = os.path.isfile(out_path)
+                
+                output_df.to_csv(
+                    out_path, 
+                    mode='a',          # 'a' berarti APPEND (tambahkan ke bawah)
+                    header=not file_exists, # Tulis header hanya jika file belum ada
+                    index=False
+                )
+                # ----------------------------------------------------
 
-                    output_df = pd.DataFrame([{
-                        "timestamp": pd.Timestamp.now(),
-                        "arah_derajat": az,
-                        "sudut_sebaran": spread,
-                        "confidence": conf,
-                        "sumber": "CNN_ResUNet"
-                    }])
+                self.logger.info(
+                    f"CNN OUTPUT SAVED -> Arah: {arah_str} ({az:.2f}°) | Risk Array: {risk_array}"
+                )
 
-                    out_path = self.paths.get("cnn_prediction_out")
-                    if out_path:
-                        os.makedirs(os.path.dirname(out_path), exist_ok=True)
-                        output_df.to_csv(out_path, index=False)
+            # [PENTING] Kembalikan nilai ke df_main agar bisa diambil GA
+            # Kita inject kolom khusus untuk array risiko
+            df_main["CNN_Risk_Array"] = None 
+            df_main.at[df_main.index[-1], "CNN_Risk_Array"] = risk_array
 
-                        self.logger.info(
-                            f"CNN OUTPUT SAVED → Arah: {az:.2f}°, Sudut: {spread:.2f}, Conf: {conf:.3f}"
-                        )
-            except Exception as e:
-                self.logger.warning(f"Gagal menyimpan output CNN arah & sudut: {e}")
         except Exception as e:
-             self.logger.critical(f"CNN CRASH PRED: Error saat prediksi: {e}")
-             df_main["Proporsi_Grid_Terdampak_CNN"] = 0.0
+            self.logger.critical(f"CNN CRASH PRED: Error saat prediksi: {e}")
+            df_main["Proporsi_Grid_Terdampak_CNN"] = 0.0
 
         return df_main
