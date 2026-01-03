@@ -191,19 +191,43 @@ class TensorConstructor:
 
     def construct_ground_truth(self, row: pd.Series) -> Dict[str, np.ndarray]:
         """
-        Output ground truth untuk SimpleCNN_SimpleHead:
-        - dir_output: one-hot 4 class (timur, barat, selatan, utara)
-        - angle_output: scalar sudut 0-1
+        Label Arah (Klasifikasi) dihitung otomatis dari Sudut (Regresi)
+        agar data latih selalu sinkron (tidak split-brain).
         """
-        # Ambil arah dari data (jika ada)
-        arah_label = row.get("Arah_Class", 0)  # 0=Timur,1=Barat,2=Selatan,3=Utara
-        if arah_label not in [0,1,2,3]:
-            arah_label = 0
-        dir_onehot = np.zeros(4, dtype=np.float32)
-        dir_onehot[int(arah_label)] = 1.0
+        
+        # 1. Ambil & Bersihkan Sudut Derajat (Sebagai 'Source of Truth')
+        try:
+            sudut_deg = float(row.get("Arah_Derajat", 0.0))
+            if np.isnan(sudut_deg): 
+                sudut_deg = 0.0
+        except:
+            sudut_deg = 0.0
 
-        # Ambil sudut derajat dari data, ubah ke 0-1
-        sudut_deg = float(row.get("Arah_Derajat", 0.0)) % 360.0
+        # Normalisasi 0-360 derajat
+        sudut_deg = sudut_deg % 360.0
+
+        # 2. Tentukan Label Arah Berdasarkan Sudut
+        # Mapping sesuai output model Anda: 0=Timur, 1=Barat, 2=Selatan, 3=Utara
+        # (Sesuai dengan sistem navigasi: 0°=Utara, 90°=Timur, dst)
+        
+        # Area Utara (315° - 45°) -> Class 3 (Utara)
+        if (sudut_deg >= 315 or sudut_deg < 45):
+            arah_idx = 3 
+        # Area Timur (45° - 135°) -> Class 0 (Timur)
+        elif (sudut_deg >= 45 and sudut_deg < 135):
+            arah_idx = 0
+        # Area Selatan (135° - 225°) -> Class 2 (Selatan)
+        elif (sudut_deg >= 135 and sudut_deg < 225):
+            arah_idx = 2
+        # Area Barat (225° - 315°) -> Class 1 (Barat)
+        else:
+            arah_idx = 1
+
+        # 3. Buat One-Hot Encoding (Target Klasifikasi)
+        dir_onehot = np.zeros(4, dtype=np.float32)
+        dir_onehot[int(arah_idx)] = 1.0
+
+        # 4. Buat Normalized Angle (Target Regresi 0.0 - 1.0)
         angle_norm = np.array([sudut_deg / 360.0], dtype=np.float32)
 
         return {
@@ -548,8 +572,14 @@ class CNNEngine:
 
             # 3. Output Risiko (k) sebagai ARRAY [PERBAIKAN UTAMA]
             # Client minta risiko (k) dibuat array. Kita ambil max probability sebagai confidence.
-            conf_val = float(np.max(dir_probs))
-            risk_array = np.array([conf_val]) # <-- DIBUAT ARRAY SESUAI REQUEST
+            raw_conf = float(np.max(dir_probs))
+            
+            # Teknik "Clipping": Batasi keyakinan maksimal di 95% agar realistis
+            # Karena gempa adalah fenomena alam yang tidak mungkin diprediksi 100%
+            conf_val = min(raw_conf, 0.95) 
+            
+            # Update array risiko dengan nilai yang sudah di-limit
+            risk_array = np.array([conf_val])
 
             # Simpan ke CSV
             output_df = pd.DataFrame([{
