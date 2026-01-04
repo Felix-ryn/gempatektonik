@@ -190,15 +190,72 @@ class EvaluationEngine:
     # =================================================
     # MODEL-LEVEL EVALUATION SUMMARY (BARU)
     # =================================================
+    def _compute_binary_metrics_from_cm(self, cm):
+        """
+        Dari confusion matrix (numpy array) -> hitung TP, FP, FN, TN dan
+        metrik ACC, PPV, SN, F1 untuk setiap kelas sesuai rumus pada gambar.
+        Mengembalikan (per_class_metrics: dict, macro_avg: dict)
+        """
+        cm = np.array(cm, dtype=int)
+        n = cm.shape[0]
+        total = int(cm.sum()) if cm.size > 0 else 0
+
+        per_class = {}
+        for i, label in enumerate(self.fixed_labels):
+            TP = int(cm[i, i])
+            FP = int(cm[:, i].sum() - TP)
+            FN = int(cm[i, :].sum() - TP)
+            TN = int(total - TP - FP - FN)
+
+            # safe divisions
+            ACC = (TP + TN) / total if total > 0 else 0.0
+            PPV = TP / (TP + FP) if (TP + FP) > 0 else 0.0
+            SN = TP / (TP + FN) if (TP + FN) > 0 else 0.0
+            F1 = (2 * PPV * SN) / (PPV + SN) if (PPV + SN) > 0 else 0.0
+
+            per_class[label] = {
+                "TP": TP, "FP": FP, "FN": FN, "TN": TN,
+                "ACC": float(ACC),
+                "PPV": float(PPV),
+                "SN": float(SN),
+                "F1": float(F1)
+            }
+
+        # macro averages (rata-rata sederhana antar kelas)
+        macro = {}
+        for mname in ["ACC", "PPV", "SN", "F1"]:
+            macro[mname] = float(np.mean([per_class[l][mname] for l in self.fixed_labels]))
+
+        return per_class, macro
+
+
     def _build_model_summary(self, y_true, y_pred):
-        cm = confusion_matrix(y_true, y_pred, labels=list(self.encoder.transform(self.fixed_labels)))
-        return {
-            "Akurasi": float(accuracy_score(y_true, y_pred)),
-            "PPV (Presisi)": float(precision_score(y_true, y_pred, average="weighted", zero_division=0)),
-            "Sensitivitas (Recall)": float(recall_score(y_true, y_pred, average="weighted", zero_division=0)),
-            "F1-Score": float(f1_score(y_true, y_pred, average="weighted", zero_division=0)),
-            "Confusion_Matrix": cm.tolist()
+        """
+        Menghasilkan ringkasan evaluation berdasarkan rumus pada gambar:
+        - confusion matrix (ordered sesuai self.fixed_labels)
+        - metrik per-kelas (TP, FP, FN, TN, ACC, PPV, SN, F1)
+        - macro average untuk ACC/PPV/SN/F1
+        - juga tetap menyertakan skor weighted (jika ingin)
+        """
+        labels_numeric = list(self.encoder.transform(self.fixed_labels))
+        cm = confusion_matrix(y_true, y_pred, labels=labels_numeric)
+        per_class_metrics, macro_avg = self._compute_binary_metrics_from_cm(cm)
+
+        summary = {
+            "Confusion_Matrix": cm.tolist(),
+            "Per_Class": per_class_metrics,
+            "Macro_Average": macro_avg,
+            # mempertahankan juga metrik sklearn weighted sebagai pelengkap
+            "Weighted": {
+                "Akurasi": float(accuracy_score(y_true, y_pred)),
+                "Precision_Weighted": float(precision_score(y_true, y_pred, average="weighted", zero_division=0)),
+                "Recall_Weighted": float(recall_score(y_true, y_pred, average="weighted", zero_division=0)),
+                "F1_Weighted": float(f1_score(y_true, y_pred, average="weighted", zero_division=0))
+            }
         }
+
+        return summary
+
 
     def _write_all_metrics(
         self,

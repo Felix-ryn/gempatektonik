@@ -1,34 +1,34 @@
 [
   {
     "Feature":"Global_Tectonic_Stress",
-    "Importance":0.2706142962
+    "Importance":0.2785999477
   },
   {
     "Feature":"month_sin",
-    "Importance":0.1787783355
+    "Importance":0.1763711572
   },
   {
     "Feature":"Context_Risk_Pheromone",
-    "Importance":0.1525243372
+    "Importance":0.1559937894
   },
   {
     "Feature":"hour_cos",
-    "Importance":0.1146687642
+    "Importance":0.1130433232
   },
   {
     "Feature":"month_cos",
-    "Importance":0.1073037833
+    "Importance":0.1020696387
   },
   {
     "Feature":"hour_sin",
-    "Importance":0.0711938962
+    "Importance":0.0704592168
   },
   {
     "Feature":"Magnitudo",
-    "Importance":0.0628027096
+    "Importance":0.0640326738
   },
   {
     "Feature":"Dist_To_GA_Pred",
-    "Importance":0.042113889
+    "Importance":0.0394302309
   }
 ]
