@@ -242,37 +242,57 @@ class TensorConstructor:
 # ============================================================
 
 class CNNModelArchitect:
+    # fungsi ini digunakan sebagai cetakan blok CNN
+    # tapi fungsi ini tidak masuk ke perhitungan layer mmodel akhir, di fungsi build_model tidak dipanggil.
+    # oleh karena itu, perhitungan dimulai dari build_model.
     def _conv_block(self, x, filters):
         """Satu blok Conv2D -> ReLU -> BatchNorm -> MaxPool"""
+        # berisi 3 jenis layer yang digunakan, total 3 layer.
         x = Conv2D(filters, 3, padding="same", activation="relu")(x)
         x = BatchNormalization()(x)
         x = MaxPooling2D()(x)
         return x
 
     def build_model(self, input_shape=(32,32,5), hidden_nodes=[128,64], use_mask=False) -> tf.keras.Model:
-        inp = Input(shape=input_shape, name="cnn_input")
+        inp = Input(shape=input_shape, name="cnn_input") # layer ke 1
         x = inp
         
-        # Satu blok Conv sederhana
-        x = Conv2D(32, 3, padding="same", activation="relu")(x)
-        x = BatchNormalization()(x)
-        x = MaxPooling2D()(x)
+        # Blok 1, disini CNN membaca pola dasar
+        # berisi 32 filter=node, 
+        x = Conv2D(32, 3, padding="same", activation="relu")(x) # jenis layer dihitung = 1 layer
+        x = BatchNormalization()(x) # jenis layer yang dihitung = 1 layer
+        x = MaxPooling2D()(x) # jenis layer dihitung = 1 layer.
+        # total 3 layer
 
-        x = Conv2D(64, 3, padding="same", activation="relu")(x)
-        x = BatchNormalization()(x)
-        x = MaxPooling2D()(x)
+        # Blok 2, Pola lebih kompleks
+        # berisi 64 filter
+        x = Conv2D(64, 3, padding="same", activation="relu")(x) # 1 layer
+        x = BatchNormalization()(x) # 1 layer
+        x = MaxPooling2D()(x) # 1 layer
+        # total 3 layer
 
-        # Flatten untuk dense layers
-        x_flat = GlobalAveragePooling2D()(x)
+        # Jenis layer  GlobalAveragePooling
+        # untuk mengubah peta 2D menjadi vektor angka
+        x_flat = GlobalAveragePooling2D()(x) # 1 layer
 
-        for nodes in hidden_nodes:
-            x_flat = Dense(nodes, activation="relu")(x_flat)
-            x_flat = Dropout(0.2)(x_flat)
+        # Hidden node: [128, 64] 
+        # hidden 1 : 128 (1 layer)
+        # hidden 2 : 64 (1 layer)
+        for nodes in hidden_nodes: # loop ini berjalan sebanyak isi list (2 kali, untuk menjalankan 128 dan 64)
+            x_flat = Dense(nodes, activation="relu")(x_flat) # hidden dense 1 layer (hidden layer)
+            x_flat = Dropout(0.2)(x_flat) # dropout 1 layer (bukan hidden layer)
+        # jadi blok tsb menjalankan 2 kali:
+        # hidden 1: 1 dense layer (128 node) dan 1 dropout layer
+        # hidden 2: 1 dense layer (64 node) dan 1 dropout layer
+        # total dense layer: 2 layer
+        # total dropout layer: 2 layer
+        # Total layer pada blok loop: 4 layer
 
-        # Output 1: arah (4 kelas)
+        # Output 1: arah (4 kelas/node) 1 layer
         dir_out = Dense(4, activation="softmax", name="dir_output")(x_flat)
-        # Output 2: sudut (regression)
+        # Output 2: sudut (regression/node) 1 layer
         angle_out = Dense(1, activation="linear", name="angle_output")(x_flat)
+        # total 2 layer dan 5 node
 
         model = Model(inputs=inp, outputs=[dir_out, angle_out], name="SimpleCNN_SimpleHead")
         model.compile(
