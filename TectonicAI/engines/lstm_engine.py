@@ -51,7 +51,6 @@ def is_empty(obj) -> bool:
         if isinstance(obj, (_pd.DataFrame, _pd.Series)):
             return obj.empty
     except Exception:
-        # if pandas not available or other error -> fallback
         pass
 
     # numpy arrays and array-like
@@ -730,7 +729,7 @@ class LSTMEngine:
         X_last = X_full[:, -1, :]          # (N, F)
         recon_error = np.mean(
             np.abs(pred_mean - X_last),
-            axis=1                         # (N,)
+            axis=1                          # (N,)
         )
 
         # ===============================
@@ -748,13 +747,19 @@ class LSTMEngine:
         )
 
         # ===============================
-        # ANOMALY & RISK (HILANG SEBELUMNYA)
+        # ANOMALY & RISK (FIXED LOGIC)
         # ===============================
         is_anomaly = recon_error > thresholds
-        risk = np.clip(
-            (recon_error - thresholds) / (thresholds + 1e-9),
-            0, None
-        )
+        
+        # [FIX] Perbaikan Logic Risk agar tidak 0.0
+        # Normalisasi Min-Max pada Reconstruction Error
+        _min_err = np.min(recon_error)
+        _max_err = np.max(recon_error)
+        
+        if _max_err > _min_err:
+            risk = (recon_error - _min_err) / (_max_err - _min_err)
+        else:
+            risk = np.zeros_like(recon_error) + 0.1 # Default small risk if flat
 
         # ===============================
         # OUTPUT DATAFRAME
