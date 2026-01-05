@@ -25,7 +25,7 @@ else:
 
 sys.path.append(str(PROJECT_ROOT))
 
-# --- 2. DEFINISI FILE PATH (UPDATE: Tambah CNN CSV) ---
+# --- 2. DEFINISI FILE PATH ---
 BASE_OUT = PROJECT_ROOT / "output"
 
 FILES = {
@@ -38,7 +38,7 @@ FILES = {
     # LSTM Files
     "lstm_csv": BASE_OUT / "lstm_results" / "lstm_output_2years.csv",
     "lstm_recent": BASE_OUT / "lstm_results" / "lstm_recent_15_days.csv",
-    # CNN Files (BARU - Sesuai Revisi Client)
+    # CNN Files
     "cnn_csv": BASE_OUT / "cnn_results" / "cnn_next_earthquake_prediction.csv"
 }
 
@@ -48,7 +48,7 @@ def load_dashboard_data():
         "aco_html": None, "aco_stats": {},
         "ga_html": None, "ga_stats": {},
         "lstm_df": None, "recent_risk": 0.0,
-        "cnn_stats": {}, # Container baru untuk data CNN
+        "cnn_stats": {}, 
         "debug_log": []
     }
 
@@ -110,8 +110,7 @@ def load_dashboard_data():
                 data["recent_risk"] = df['Temporal_Risk_Factor'].mean()
         except: pass
 
-    # F. LOAD CNN (UPDATE PENTING)
-    # Membaca output real dari Simple CNN Engine
+    # F. LOAD CNN (Membaca output real dari Simple CNN Engine)
     if FILES["cnn_csv"].exists():
         try:
             df = pd.read_csv(FILES["cnn_csv"])
@@ -225,7 +224,7 @@ def main():
     st.markdown("---")
 
     # =========================================================================
-    # BAGIAN 3: TEMPORAL & PREDIKSI (LSTM & CNN) - UPDATE VISUALISASI
+    # BAGIAN 3: TEMPORAL & PREDIKSI (LSTM & CNN) - UPDATED
     # =========================================================================
     st.header("3. Tren Waktu (LSTM) & Prediksi Future (CNN)")
     col_lstm, col_cnn = st.columns([2, 1])
@@ -247,42 +246,52 @@ def main():
         else:
             st.warning("Data LSTM belum tersedia.")
 
+    # [BAGIAN YANG ANDA MINTA DIMASUKKAN ADA DI SINI]
     with col_cnn:
-        st.subheader("🎯 Prediksi Gempa Selanjutnya")
+        st.markdown("### 🧠 CNN Forecast (Spatio-Temporal)")
         
-        # --- UPDATE: MENGGUNAKAN DATA REAL DARI CSV ---
-        cnn_angle = cnn_data.get('sudut', 0.0)
-        cnn_dir_str = cnn_data.get('arah_str', "Menunggu Data")
-        cnn_conf_val = cnn_data.get('conf', 0.0)
+        # Load data CNN dari dictionary 'd' yang sudah diload di atas
+        cnn_data = d.get('cnn_stats', {})
         
         if cnn_data:
+            cnn_angle = cnn_data.get('sudut', 0.0)
+            cnn_dir_str = cnn_data.get('arah_str', "Menunggu Data")
+            cnn_conf = cnn_data.get('conf', 0.0)
+            
+            # Metric Display
+            st.metric(
+                label="Prediksi Arah Gempa",
+                value=f"{cnn_dir_str}",
+                delta=f"{cnn_angle:.1f}°"
+            )
+            
+            # Simple Arrow Visualization
             fig_cnn = go.Figure(go.Scatterpolar(
                 r=[0, 1], theta=[0, cnn_angle],
                 mode='lines+markers',
-                marker=dict(symbol="arrow-bar-up", size=20, color="red"),
-                line=dict(color="red", width=5),
-                name="CNN Prediction"
+                marker=dict(symbol="arrow-bar-up", size=15, color="#FF4B4B"),
+                line=dict(color="#FF4B4B", width=4),
+                name="Arah"
             ))
             fig_cnn.update_layout(
                 polar=dict(
-                    radialaxis=dict(visible=False, range=[0, 1]),
+                    radialaxis=dict(visible=False),
                     angularaxis=dict(
-                        tickmode='array',
                         tickvals=[0, 90, 180, 270],
                         ticktext=['U', 'T', 'S', 'B'],
-                        direction="clockwise", rotation=90
+                        rotation=90, direction="clockwise"
                     )
                 ),
-                showlegend=False, height=300,
+                showlegend=False, height=200,
                 margin=dict(l=20, r=20, t=20, b=20),
-                title=f"Arah: {cnn_dir_str}"
             )
             st.plotly_chart(fig_cnn, use_container_width=True)
             
-            st.success(f"**Sudut:** {cnn_angle:.2f}°")
-            st.metric("Confidence Level", f"{cnn_conf_val*100:.1f}%")
+            st.caption(f"Confidence: {cnn_conf:.1%} | Input: H-1 & H Vectors")
+            
         else:
-            st.info("⚠️ Data prediksi CNN belum tersedia. Jalankan Engine terlebih dahulu.")
+            st.warning("Data CNN belum tersedia.")
+            st.info("Jalankan engine untuk memicu prediksi.")
 
 if __name__ == "__main__":
     main()

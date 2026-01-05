@@ -137,54 +137,61 @@ class TensorConstructor:
 
     def construct_input_tensor(self, row: pd.Series) -> np.ndarray:
         gs = self.grid_size
-
-        # --- Ambil nilai ACO
+        
+        # --- 1. DATA SAAT INI (H) ---
         cx_rel = float(row.get("ACO_center_x", 0.5))
         cy_rel = float(row.get("ACO_center_y", 0.5))
         impact_radius_km = float(row.get("Context_Impact_Radius", row.get("R_true", 0.0)))
 
-        # LSTM output scalar
+        # --- 2. DATA MASA LALU (H-1) ---
+        # Ini akan mengambil kolom yang nanti kita buat otomatis di CNNEngine
+        cx_rel_prev = float(row.get("ACO_center_x_prev", cx_rel)) 
+        cy_rel_prev = float(row.get("ACO_center_y_prev", cy_rel))
+        radius_prev = float(row.get("Radius_prev", impact_radius_km))
+
+        # --- 3. LSTM OUTPUT ---
         lstm_feat = float(row.get("LSTM_pred", 0.0))
 
-        # Magnitude & log depth
-        mag = float(row.get("Magnitudo", 0.0))
-        kedalaman_safe = float(row.get("Kedalaman_km", 0.0))
-        log_depth = np.log1p(abs(kedalaman_safe)) if kedalaman_safe is not None else 0.0
-
-        # Channel 1: ACO center map
+        # --- KONSTRUKSI CHANNEL (Client Request: 5 Input) ---
+        # Helper Grid
         xv, yv = np.meshgrid(np.linspace(0,1,gs), np.linspace(0,1,gs))
-        sigma = max(1e-3, (impact_radius_km / 100.0) * 0.5 + 0.01)
-        center_map = np.exp(-((xv - cx_rel)**2 + (yv - cy_rel)**2) / (2*sigma*sigma)).astype(np.float32)
-
-        # Channel 2: ACO area mask
-        km_per_unit = 100.0 / gs
-        pixel_radius = np.clip(impact_radius_km / km_per_unit, 0, gs)
-        cx_pixel = int(cx_rel * (gs-1))
-        cy_pixel = int(cy_rel * (gs-1))
         y_idx, x_idx = np.ogrid[:gs, :gs]
-        dist = np.sqrt((x_idx - cx_pixel)**2 + (y_idx - cy_pixel)**2)
-        area_map = (dist <= pixel_radius).astype(np.float32)
+        km_per_unit = 100.0 / gs
 
-        # Channel 3: LSTM feature
+        # Channel 1: Pusat Gempa (H) -> Gaussian Heatmap
+        sigma = max(1e-3, (impact_radius_km / 100.0) * 0.5 + 0.01)
+        center_map_h = np.exp(-((xv - cx_rel)**2 + (yv - cy_rel)**2) / (2*sigma*sigma))
+
+        # Channel 2: Area Terdampak (H) -> Binary Mask
+        pixel_r_h = np.clip(impact_radius_km / km_per_unit, 0, gs)
+        cx_p_h, cy_p_h = int(cx_rel * (gs-1)), int(cy_rel * (gs-1))
+        dist_h = np.sqrt((x_idx - cx_p_h)**2 + (y_idx - cy_p_h)**2)
+        area_map_h = (dist_h <= pixel_r_h).astype(np.float32)
+
+        # Channel 3: Pusat Gempa (H-1) -> Gaussian Heatmap [NEW REQUEST]
+        sigma_prev = max(1e-3, (radius_prev / 100.0) * 0.5 + 0.01)
+        center_map_prev = np.exp(-((xv - cx_rel_prev)**2 + (yv - cy_rel_prev)**2) / (2*sigma_prev*sigma_prev))
+
+        # Channel 4: Area Terdampak (H-1) -> Binary Mask [NEW REQUEST]
+        pixel_r_prev = np.clip(radius_prev / km_per_unit, 0, gs)
+        cx_p_prev, cy_p_prev = int(cx_rel_prev * (gs-1)), int(cy_rel_prev * (gs-1))
+        dist_prev = np.sqrt((x_idx - cx_p_prev)**2 + (y_idx - cy_p_prev)**2)
+        area_map_prev = (dist_prev <= pixel_r_prev).astype(np.float32)
+
+        # Channel 5: LSTM Feature -> Scalar Broadcast
         c_lstm = np.full((gs, gs), np.clip(lstm_feat, -1e3, 1e3), dtype=np.float32)
 
-        # Channel 4: Magnitude normalized
-        c_mag = np.full((gs, gs), np.clip(mag / 10.0, 0.0, 10.0), dtype=np.float32)
-
-        # Channel 5: log depth broadcast
-        c_depth = np.full((gs, gs), log_depth, dtype=np.float32)
-
-        # --- Stack 5 channel saja
-        stacked = np.stack([center_map, area_map, c_lstm, c_mag, c_depth], axis=-1)
-
-        # Safety dimension fix
+        # Stack 5 channel
+        stacked = np.stack([center_map_h, area_map_h, center_map_prev, area_map_prev, c_lstm], axis=-1)
+        
+        # Safety shape check
         if stacked.shape != (gs, gs, 5):
             fixed = np.zeros((gs, gs, 5), dtype=np.float32)
-            h = min(gs, stacked.shape[0])
-            w = min(gs, stacked.shape[1])
-            d = min(5, stacked.shape[2])
-            fixed[:h, :w, :d] = stacked[:h, :w, :d]
-            stacked = fixed
+            h_dim = min(gs, stacked.shape[0])
+            w_dim = min(gs, stacked.shape[1])
+            d_dim = min(5, stacked.shape[2])
+            fixed[:h_dim, :w_dim, :d_dim] = stacked[:h_dim, :w_dim, :d_dim]
+            return fixed
 
         return stacked.astype(np.float32)
 
@@ -429,6 +436,71 @@ class CNNEngine:
             return pd.DataFrame()
 
     # --------------------------------------------------------
+    def _inject_history_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Helper internal untuk membuat fitur H-1 (Lagging) secara otomatis"""
+        if df.empty:
+            return df
+            
+        df = df.copy()
+        
+        # 1. Pastikan urut waktu
+        if 'timestamp' in df.columns:
+            df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
+            df = df.sort_values('timestamp').reset_index(drop=True)
+        elif 'time' in df.columns: 
+            df['timestamp'] = pd.to_datetime(df['time'], errors='coerce')
+            df = df.sort_values('timestamp').reset_index(drop=True)
+        elif 'Tanggal' in df.columns: # Support kolom 'Tanggal' (Indonesian)
+            df['timestamp'] = pd.to_datetime(df['Tanggal'], errors='coerce')
+            df = df.sort_values('timestamp').reset_index(drop=True)
+            
+        # 2. DETEKSI KOLOM SUMBER (UPDATE: SUPPORT BAHASA INDONESIA)
+        cols = df.columns.tolist()
+        
+        # Cari kolom Latitude/X (Menambahkan 'Lintang')
+        col_x = None
+        # Urutan prioritas: Nama standar -> Inggris -> Indonesia -> Singkatan
+        for candidate in ['ACO_center_x', 'center_x', 'latitude', 'lat', 'x', 'Lintang']:
+            if candidate in cols:
+                col_x = candidate
+                break
+                
+        # Cari kolom Longitude/Y (Menambahkan 'Bujur')
+        col_y = None
+        for candidate in ['ACO_center_y', 'center_y', 'longitude', 'long', 'lon', 'y', 'Bujur']:
+            if candidate in cols:
+                col_y = candidate
+                break
+                
+        # Cari kolom Radius
+        col_r = None
+        for candidate in ['Context_Impact_Radius', 'radius_km', 'radius', 'R_true', 'impact_radius']:
+            if candidate in cols:
+                col_r = candidate
+                break
+        
+        # 3. Buat kolom H-1 (Prev) jika kolom sumber ditemukan
+        if col_x and col_y and col_r:
+            self.logger.info(f"CNN DEBUG: Mapping kolom ditemukan -> X: {col_x}, Y: {col_y}, R: {col_r}")
+            
+            # Kita STANDARISASI nama kolom ke internal engine agar konsisten
+            df['ACO_center_x'] = df[col_x]
+            df['ACO_center_y'] = df[col_y]
+            df['Context_Impact_Radius'] = df[col_r]
+            
+            # Shift data untuk H-1
+            df['ACO_center_x_prev'] = df['ACO_center_x'].shift(1).fillna(df['ACO_center_x'])
+            df['ACO_center_y_prev'] = df['ACO_center_y'].shift(1).fillna(df['ACO_center_y'])
+            df['Radius_prev']       = df['Context_Impact_Radius'].shift(1).fillna(df['Context_Impact_Radius'])
+        else:
+            # Jika masuk sini, artinya nama kolom masih belum match
+            self.logger.warning(f"KOLOM HILANG: Tidak bisa menemukan lat/lon/radius di {cols}. Menggunakan default.")
+            df['ACO_center_x_prev'] = 0.5
+            df['ACO_center_y_prev'] = 0.5
+            df['Radius_prev'] = 0.0
+
+        return df
+    # --------------------------------------------------------
     def train_and_predict(self, df_main: pd.DataFrame, train_indices=None, test_indices=None, **kwargs):
         """Main Pipeline: Load Data -> Build Tensors -> Load/Train Model -> Predict"""
 
@@ -450,7 +522,10 @@ class CNNEngine:
             else:
                 df_main["Proporsi_Grid_Terdampak_CNN"] = 0.0
                 return df_main
-            
+        # Otomatis membuat kolom H-1 sebelum masuk ke tensor builder
+        df_bridge = self._inject_history_features(df_bridge)
+        self.logger.info("CNN DEBUG: Fitur historis (H-1) berhasil di-generate otomatis.")
+
         self.logger.info(f"CNN DEBUG: [Step 2] Data dimuat, {len(df_bridge)} baris.")
 
         # --------------------------------------------------------
