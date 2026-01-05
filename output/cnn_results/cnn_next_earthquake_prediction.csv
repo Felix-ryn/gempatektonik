@@ -48,3 +48,4 @@ timestamp,arah_prediksi,arah_derajat,risk_k_array,confidence_scalar,sumber
 2026-01-05 15:01:33.053230,Utara,15.411740988492966,[0.95],0.95,CNN_Simple_Adaptive
 2026-01-05 18:27:52.891495,Utara,-0.005391352424339857,[0.95],0.95,CNN_Simple_Adaptive
 2026-01-05 18:31:17.472712,Utara,-0.911528617143631,[0.95],0.95,CNN_Simple_Adaptive
+2026-01-06 01:12:22.446168,Utara,7.922151759266853,[0.95],0.95,CNN_Simple_Adaptive
