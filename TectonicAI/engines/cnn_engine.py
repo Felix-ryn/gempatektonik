@@ -126,115 +126,95 @@ class TensorConstructor:
         self.grid_size = grid_size
         self.logger = logger
 
-    def _safe_map(self, value, scale=1.0):
-        try:
-            v = float(value)
-            if np.isnan(v) or np.isinf(v) or abs(v) > 1e10: 
-                return 0.0
-            return v * scale
-        except:
-            return 0.0
-
     def construct_input_tensor(self, row: pd.Series) -> np.ndarray:
+        """
+        Membangun Input 5 Channel Sesuai Request Client:
+        1. ACO Center (H)
+        2. ACO Area Impact (H)
+        3. ACO Center (H-1 / Previous)
+        4. ACO Area Impact (H-1 / Previous)
+        5. LSTM Feature
+        """
         gs = self.grid_size
         
-        # --- 1. DATA SAAT INI (H) ---
-        cx_rel = float(row.get("ACO_center_x", 0.5))
-        cy_rel = float(row.get("ACO_center_y", 0.5))
-        impact_radius_km = float(row.get("Context_Impact_Radius", row.get("R_true", 0.0)))
+        # --- DATA SAAT INI (H) ---
+        cx = float(row.get("ACO_center_x", 0.5))
+        cy = float(row.get("ACO_center_y", 0.5))
+        rad = float(row.get("Context_Impact_Radius", 0.0))
 
-        # --- 2. DATA MASA LALU (H-1) ---
-        # Ini akan mengambil kolom yang nanti kita buat otomatis di CNNEngine
-        cx_rel_prev = float(row.get("ACO_center_x_prev", cx_rel)) 
-        cy_rel_prev = float(row.get("ACO_center_y_prev", cy_rel))
-        radius_prev = float(row.get("Radius_prev", impact_radius_km))
+        # --- DATA MASA LALU (H-1) ---
+        cx_prev = float(row.get("ACO_center_x_prev", cx)) 
+        cy_prev = float(row.get("ACO_center_y_prev", cy))
+        rad_prev = float(row.get("Radius_prev", rad))
 
-        # --- 3. LSTM OUTPUT ---
-        lstm_feat = float(row.get("LSTM_pred", 0.0))
+        # --- LSTM OUTPUT ---
+        lstm_val = float(row.get("LSTM_pred", 0.0))
 
-        # --- KONSTRUKSI CHANNEL (Client Request: 5 Input) ---
         # Helper Grid
         xv, yv = np.meshgrid(np.linspace(0,1,gs), np.linspace(0,1,gs))
         y_idx, x_idx = np.ogrid[:gs, :gs]
         km_per_unit = 100.0 / gs
 
-        # Channel 1: Pusat Gempa (H) -> Gaussian Heatmap
-        sigma = max(1e-3, (impact_radius_km / 100.0) * 0.5 + 0.01)
-        center_map_h = np.exp(-((xv - cx_rel)**2 + (yv - cy_rel)**2) / (2*sigma*sigma))
+        # ---------------------------------------------------
+        # Channel 1: Pusat Gempa H (Gaussian Heatmap)
+        # ---------------------------------------------------
+        sigma = 0.05 # Standar deviasi kecil untuk titik pusat
+        c1_center_h = np.exp(-((xv - cx)**2 + (yv - cy)**2) / (2*sigma*sigma))
 
-        # Channel 2: Area Terdampak (H) -> Binary Mask
-        pixel_r_h = np.clip(impact_radius_km / km_per_unit, 0, gs)
-        cx_p_h, cy_p_h = int(cx_rel * (gs-1)), int(cy_rel * (gs-1))
-        dist_h = np.sqrt((x_idx - cx_p_h)**2 + (y_idx - cy_p_h)**2)
-        area_map_h = (dist_h <= pixel_r_h).astype(np.float32)
+        # ---------------------------------------------------
+        # Channel 2: Area Terdampak H (Binary Mask)
+        # ---------------------------------------------------
+        pix_r = np.clip(rad / km_per_unit, 0, gs)
+        cx_p, cy_p = int(cx * (gs-1)), int(cy * (gs-1))
+        dist = np.sqrt((x_idx - cx_p)**2 + (y_idx - cy_p)**2)
+        c2_area_h = (dist <= pix_r).astype(np.float32)
 
-        # Channel 3: Pusat Gempa (H-1) -> Gaussian Heatmap [NEW REQUEST]
-        sigma_prev = max(1e-3, (radius_prev / 100.0) * 0.5 + 0.01)
-        center_map_prev = np.exp(-((xv - cx_rel_prev)**2 + (yv - cy_rel_prev)**2) / (2*sigma_prev*sigma_prev))
+        # ---------------------------------------------------
+        # Channel 3: Pusat Gempa H-1 (Gaussian Heatmap)
+        # ---------------------------------------------------
+        c3_center_prev = np.exp(-((xv - cx_prev)**2 + (yv - cy_prev)**2) / (2*sigma*sigma))
 
-        # Channel 4: Area Terdampak (H-1) -> Binary Mask [NEW REQUEST]
-        pixel_r_prev = np.clip(radius_prev / km_per_unit, 0, gs)
-        cx_p_prev, cy_p_prev = int(cx_rel_prev * (gs-1)), int(cy_rel_prev * (gs-1))
+        # ---------------------------------------------------
+        # Channel 4: Area Terdampak H-1 (Binary Mask)
+        # ---------------------------------------------------
+        pix_r_prev = np.clip(rad_prev / km_per_unit, 0, gs)
+        cx_p_prev, cy_p_prev = int(cx_prev * (gs-1)), int(cy_prev * (gs-1))
         dist_prev = np.sqrt((x_idx - cx_p_prev)**2 + (y_idx - cy_p_prev)**2)
-        area_map_prev = (dist_prev <= pixel_r_prev).astype(np.float32)
+        c4_area_prev = (dist_prev <= pix_r_prev).astype(np.float32)
 
-        # Channel 5: LSTM Feature -> Scalar Broadcast
-        c_lstm = np.full((gs, gs), np.clip(lstm_feat, -1e3, 1e3), dtype=np.float32)
+        # ---------------------------------------------------
+        # Channel 5: LSTM Feature (Scalar Broadcast)
+        # ---------------------------------------------------
+        c5_lstm = np.full((gs, gs), np.tanh(lstm_val), dtype=np.float32) # tanh agar range -1 s/d 1
 
-        # Stack 5 channel
-        stacked = np.stack([center_map_h, area_map_h, center_map_prev, area_map_prev, c_lstm], axis=-1)
-        
-        # Safety shape check
-        if stacked.shape != (gs, gs, 5):
-            fixed = np.zeros((gs, gs, 5), dtype=np.float32)
-            h_dim = min(gs, stacked.shape[0])
-            w_dim = min(gs, stacked.shape[1])
-            d_dim = min(5, stacked.shape[2])
-            fixed[:h_dim, :w_dim, :d_dim] = stacked[:h_dim, :w_dim, :d_dim]
-            return fixed
-
-        return stacked.astype(np.float32)
-
+        # Stack menjadi (Grid, Grid, 5)
+        stacked = np.stack([c1_center_h, c2_area_h, c3_center_prev, c4_area_prev, c5_lstm], axis=-1)
+        return stacked
 
     def construct_ground_truth(self, row: pd.Series) -> Dict[str, np.ndarray]:
         """
-        Label Arah (Klasifikasi) dihitung otomatis dari Sudut (Regresi)
-        agar data latih selalu sinkron (tidak split-brain).
+        [NEW METHOD] Membuat Target Label untuk Training.
+        Mengubah data kolom menjadi format yang bisa dilatih oleh CNN.
         """
-        
-        # 1. Ambil & Bersihkan Sudut Derajat (Sebagai 'Source of Truth')
-        try:
-            sudut_deg = float(row.get("Arah_Derajat", 0.0))
-            if np.isnan(sudut_deg): 
-                sudut_deg = 0.0
-        except:
-            sudut_deg = 0.0
+        # 1. Ambil Sudut Aktual (Handling kolom nama yang mungkin beda)
+        sudut_deg = float(row.get("Arah_Derajat", row.get("angle", 0.0))) % 360.0
 
-        # Normalisasi 0-360 derajat
-        sudut_deg = sudut_deg % 360.0
-
-        # 2. Tentukan Label Arah Berdasarkan Sudut
-        # Mapping sesuai output model Anda: 0=Timur, 1=Barat, 2=Selatan, 3=Utara
-        # (Sesuai dengan sistem navigasi: 0°=Utara, 90°=Timur, dst)
-        
-        # Area Utara (315° - 45°) -> Class 3 (Utara)
+        # 2. Tentukan Kelas Arah (4 Sumbu: Timur, Barat, Selatan, Utara)
+        # Mapping: 0=Timur, 1=Barat, 2=Selatan, 3=Utara
         if (sudut_deg >= 315 or sudut_deg < 45):
-            arah_idx = 3 
-        # Area Timur (45° - 135°) -> Class 0 (Timur)
+            arah_idx = 3 # Utara
         elif (sudut_deg >= 45 and sudut_deg < 135):
-            arah_idx = 0
-        # Area Selatan (135° - 225°) -> Class 2 (Selatan)
+            arah_idx = 0 # Timur
         elif (sudut_deg >= 135 and sudut_deg < 225):
-            arah_idx = 2
-        # Area Barat (225° - 315°) -> Class 1 (Barat)
+            arah_idx = 2 # Selatan
         else:
-            arah_idx = 1
+            arah_idx = 1 # Barat
 
-        # 3. Buat One-Hot Encoding (Target Klasifikasi)
+        # One-Hot Encoding untuk 4 Sumbu
         dir_onehot = np.zeros(4, dtype=np.float32)
         dir_onehot[int(arah_idx)] = 1.0
 
-        # 4. Buat Normalized Angle (Target Regresi 0.0 - 1.0)
+        # Normalisasi Sudut (0-1) untuk Regresi
         angle_norm = np.array([sudut_deg / 360.0], dtype=np.float32)
 
         return {
@@ -249,65 +229,144 @@ class TensorConstructor:
 # ============================================================
 
 class CNNModelArchitect:
-    # fungsi ini digunakan sebagai cetakan blok CNN
-    # tapi fungsi ini tidak masuk ke perhitungan layer mmodel akhir, di fungsi build_model tidak dipanggil.
-    # oleh karena itu, perhitungan dimulai dari build_model.
-    def _conv_block(self, x, filters):
-        """Satu blok Conv2D -> ReLU -> BatchNorm -> MaxPool"""
-        # berisi 3 jenis layer yang digunakan, total 3 layer.
-        x = Conv2D(filters, 3, padding="same", activation="relu")(x)
-        x = BatchNormalization()(x)
-        x = MaxPooling2D()(x)
-        return x
+    def build_model(self, input_shape=(32,32,5), hidden_nodes=[128,64]) -> tf.keras.Model:
+        """
+        ARSITEKTUR MODEL: SIMPLE CNN (BUKAN U-NET / BUKAN DEEP CNN)
 
-    def build_model(self, input_shape=(32,32,5), hidden_nodes=[128,64], use_mask=False) -> tf.keras.Model:
-        inp = Input(shape=input_shape, name="cnn_input") # layer ke 1
+        RINGKASAN:
+        - Input           : 32×32×5
+        - Convolution     : 2 blok (32 filter, 64 filter)
+        - Hidden Layer    : 2 Dense layer (128 node, 64 node)
+        - Output          : 2 head (4 node arah, 1 node sudut)
+        """
+
+        # =========================
+        # INPUT LAYER
+        # =========================
+        # Input bukan layer trainable (tidak punya bobot & bias)
+        inp = Input(shape=input_shape, name="cnn_input")
         x = inp
-        
-        # Blok 1, disini CNN membaca pola dasar
-        # berisi 32 filter=node, 
-        x = Conv2D(32, 3, padding="same", activation="relu")(x) # jenis layer dihitung = 1 layer
-        x = BatchNormalization()(x) # jenis layer yang dihitung = 1 layer
-        x = MaxPooling2D()(x) # jenis layer dihitung = 1 layer.
-        # total 3 layer
 
-        # Blok 2, Pola lebih kompleks
-        # berisi 64 filter
-        x = Conv2D(64, 3, padding="same", activation="relu")(x) # 1 layer
-        x = BatchNormalization()(x) # 1 layer
-        x = MaxPooling2D()(x) # 1 layer
-        # total 3 layer
+        # =====================================================
+        # FEATURE EXTRACTION (CONVOLUTIONAL PART)
+        # =====================================================
 
-        # Jenis layer  GlobalAveragePooling
-        # untuk mengubah peta 2D menjadi vektor angka
-        x_flat = GlobalAveragePooling2D()(x) # 1 layer
+        # -----------------------------------------------------
+        # BLOK CONV 1
+        # -----------------------------------------------------
+        # Conv2D:
+        # - Jumlah filter     : 32
+        # - Kernel            : 3×3
+        # - Output            : 32 feature map
+        # - Parameter         : (3×3×5)×32 + 32 bias
+        x = Conv2D(32, (3, 3), padding="same", activation="relu")(x)   # Layer trainable ke-1
 
-        # Hidden node: [128, 64] 
-        # hidden 1 : 128 (1 layer)
-        # hidden 2 : 64 (1 layer)
-        for nodes in hidden_nodes: # loop ini berjalan sebanyak isi list (2 kali, untuk menjalankan 128 dan 64)
-            x_flat = Dense(nodes, activation="relu")(x_flat) # hidden dense 1 layer (hidden layer)
-            x_flat = Dropout(0.2)(x_flat) # dropout 1 layer (bukan hidden layer)
-        # jadi blok tsb menjalankan 2 kali:
-        # hidden 1: 1 dense layer (128 node) dan 1 dropout layer
-        # hidden 2: 1 dense layer (64 node) dan 1 dropout layer
-        # total dense layer: 2 layer
-        # total dropout layer: 2 layer
-        # Total layer pada blok loop: 4 layer
+        # BatchNormalization:
+        # - Menstabilkan distribusi aktivasi
+        # - Parameter         : 32 gamma + 32 beta
+        x = BatchNormalization()(x)                                    # Layer trainable ke-2
 
-        # Output 1: arah (4 kelas/node) 1 layer
+        # MaxPooling:
+        # - Downsampling 2×2
+        # - Ukuran berubah   : 32×32 → 16×16
+        # - Tidak punya parameter
+        x = MaxPooling2D((2, 2))(x)                                    # Layer non-trainable
+
+        # Total BLOK 1:
+        # - 3 layer
+        # - 32 filter (feature extractor)
+
+        # -----------------------------------------------------
+        # BLOK CONV 2
+        # -----------------------------------------------------
+        # Conv2D:
+        # - Jumlah filter     : 64
+        # - Kernel            : 3×3
+        # - Input channel     : 32
+        # - Parameter         : (3×3×32)×64 + 64 bias
+        x = Conv2D(64, (3, 3), padding="same", activation="relu")(x)   # Layer trainable ke-3
+
+        # BatchNormalization:
+        # - Parameter         : 64 gamma + 64 beta
+        x = BatchNormalization()(x)                                    # Layer trainable ke-4
+
+        # MaxPooling:
+        # - Downsampling 2×2
+        # - Ukuran berubah   : 16×16 → 8×8
+        x = MaxPooling2D((2, 2))(x)                                    # Layer non-trainable
+
+        # Total BLOK 2:
+        # - 3 layer
+        # - 64 filter
+
+        # =====================================================
+        # FLATTENING / FEATURE COMPRESSION
+        # =====================================================
+
+        # GlobalAveragePooling:
+        # - Mengambil rata-rata tiap feature map
+        # - Mengubah 8×8×64 → 64 node
+        # - Tidak punya parameter
+        x_flat = GlobalAveragePooling2D()(x)
+
+        # =====================================================
+        # HIDDEN LAYERS (FULLY CONNECTED)
+        # =====================================================
+
+        # Hidden Layer 1:
+        # - Dense 128 node
+        # - Parameter         : 64×128 + 128 bias
+        # Hidden Layer 2:
+        # - Dense 64 node
+        # - Parameter         : 128×64 + 64 bias
+        for nodes in hidden_nodes:
+            x_flat = Dense(nodes, activation="relu")(x_flat)          # Layer trainable
+            x_flat = Dropout(0.3)(x_flat)                              # Regularization (tidak trainable)
+
+        # Total Hidden Layer:
+        # - 2 hidden layer
+        # - Node: 128 → 64
+
+        # =====================================================
+        # OUTPUT LAYERS (MULTI-HEAD)
+        # =====================================================
+
+        # OUTPUT HEAD 1 — ARAH
+        # - Dense 4 node
+        # - Softmax
+        # - Mewakili 4 kelas: Timur, Barat, Selatan, Utara
+        # - Parameter         : 64×4 + 4 bias
         dir_out = Dense(4, activation="softmax", name="dir_output")(x_flat)
-        # Output 2: sudut (regression/node) 1 layer
-        angle_out = Dense(1, activation="linear", name="angle_output")(x_flat)
-        # total 2 layer dan 5 node
 
-        model = Model(inputs=inp, outputs=[dir_out, angle_out], name="SimpleCNN_SimpleHead")
-        model.compile(
-            optimizer=Adam(0.001),
-            loss=["categorical_crossentropy", "mse"],
-            metrics=["accuracy"]
+        # OUTPUT HEAD 2 — SUDUT
+        # - Dense 1 node
+        # - Linear (regresi)
+        # - Parameter         : 64×1 + 1 bias
+        angle_out = Dense(1, activation="linear", name="angle_output")(x_flat)
+
+        # =====================================================
+        # BUILD & COMPILE MODEL
+        # =====================================================
+        model = Model(
+            inputs=inp,
+            outputs=[dir_out, angle_out],
+            name="SimpleCNN_Adaptive_v4"
         )
+
+        model.compile(
+            optimizer=Adam(learning_rate=0.001),
+            loss={
+                "dir_output": "categorical_crossentropy",
+                "angle_output": "mse"
+            },
+            metrics={
+                "dir_output": "accuracy",
+                "angle_output": "mae"
+            }
+        )
+
         return model
+
 
 # ============================================================
 #  VISUALIZATION PIPELINE
@@ -364,11 +423,14 @@ class CNNEngine:
         self.cnn_cfg = config if config is not None else {}
         self.logger = logging.getLogger("CNN_Engine")
         self.logger.setLevel(logging.INFO)
-
-        self.grid_size = int(self.cnn_cfg.get("grid_size", 32))
-        self.epochs = int(self.cnn_cfg.get("epochs", 25))
-        self.batch_size = int(self.cnn_cfg.get("batch_size", 16))
-        self.input_channels = 5 # Standard input (Mag, Depth, Pheromone, Temporal, Cluster)
+        self.grid_size = 32
+        self.epochs = 25
+        self.batch_size = 16
+        
+        # Inisialisasi komponen
+        self.tensor_builder = TensorConstructor(self.grid_size, self.logger)
+        self.architect = CNNModelArchitect()
+        self.model = None 
 
         # --- BLOK KRITIS: INISIALISASI PATHS ---
         # inside __init__
@@ -502,116 +564,112 @@ class CNNEngine:
         return df
     # --------------------------------------------------------
     def train_and_predict(self, df_main: pd.DataFrame, train_indices=None, test_indices=None, **kwargs):
-        """Main Pipeline: Load Data -> Build Tensors -> Load/Train Model -> Predict"""
-
+        """
+        Main Pipeline: Load Data -> Build Tensors (5 Channels) -> Train -> Predict (Arah, Sudut, Risk Array)
+        Sesuai Spesifikasi Client: Simple CNN Adaptif.
+        [FIXED]: Auto-detect input shape mismatch untuk mencegah crash loading model lama.
+        """
         self.logger.info("CNN DEBUG: [Step 1] Memulai CNN Execution.")
         
         # 0. Check TensorFlow
         if not HAS_TF:
             self.logger.error("CNN Disabled (TensorFlow missing). Returning fallback values.")
-            df_main["Proporsi_Grid_Terdampak_CNN"] = 0.0
+            df_main["CNN_Risk_Array"] = np.array([0.0])
             return df_main
             
-        # 1. Load Bridge Data
-        df_bridge = self._load_lstm_bridge()
-        if df_bridge.empty or not self.paths: 
-            self.logger.warning("CNN DEBUG: Bridge data kosong. Menggunakan df_main (Mode Mandiri/Fallback).")
-            # Fallback jika bridge kosong, mungkin data pertama
-            if len(df_main) > 0:
-                df_bridge = df_main.copy()
-            else:
-                df_main["Proporsi_Grid_Terdampak_CNN"] = 0.0
-                return df_main
-        # Otomatis membuat kolom H-1 sebelum masuk ke tensor builder
-        df_bridge = self._inject_history_features(df_bridge)
-        self.logger.info("CNN DEBUG: Fitur historis (H-1) berhasil di-generate otomatis.")
-
-        self.logger.info(f"CNN DEBUG: [Step 2] Data dimuat, {len(df_bridge)} baris.")
+        # 1. Load & Prepare Data (Inject History H-1)
+        df_proc = self._inject_history_features(df_main)
+        self.logger.info(f"CNN DEBUG: [Step 2] Data diproses, {len(df_proc)} baris. Fitur H-1 injected.")
 
         # --------------------------------------------------------
         # 2. TRAINING PHASE (Tensor Building)
         # --------------------------------------------------------
-        # Filter hanya data yang punya radius > 0 (artinya pernah gempa signifikan) untuk Training
-        train_samples = df_bridge[
-            (df_bridge.get("Context_Impact_Radius", 0) > 0) | 
-            (df_bridge.get("R_true", 0) > 0)
+        train_samples = df_proc[
+            (df_proc.get("Context_Impact_Radius", 0) > 0) | 
+            (df_proc.get("R_true", 0) > 0)
         ]
         
         self.logger.info(f"CNN DEBUG: [Step 3] Membangun tensor training ({len(train_samples)} valid samples).")
+        
         X_train = None
-        y_train = None
+        y_train_dict = None
 
         if len(train_samples) > 0:
             X_train = np.array([self.tensor_builder.construct_input_tensor(r) for _, r in train_samples.iterrows()])
-
-            # y_train_dict harus dictionary 2 output
+            gt_list = [self.tensor_builder.construct_ground_truth(r) for _, r in train_samples.iterrows()]
+            
             y_train_dict = {
-                "dir_output": np.array([self.tensor_builder.construct_ground_truth(r)["dir_output"]
-                                        for _, r in train_samples.iterrows()]),
-                "angle_output": np.array([self.tensor_builder.construct_ground_truth(r)["angle_output"]
-                                          for _, r in train_samples.iterrows()])
+                "dir_output": np.array([g["dir_output"] for g in gt_list]),     
+                "angle_output": np.array([g["angle_output"] for g in gt_list])  
             }
 
-
         # --------------------------------------------------------
-        # 3. MODEL MANAGEMENT (Load vs Rebuild)
+        # 3. MODEL MANAGEMENT (Robust Load vs Rebuild)
         # --------------------------------------------------------
-        model_exists = os.path.exists(self.paths["model_file"])
-
+        model_path = self.paths.get("model_file", "")
+        model_exists = os.path.exists(model_path)
+        self.model = None # Reset model state
+        
         if model_exists:
             try:
-                self.model = load_model(self.paths["model_file"], compile=False)
-                # Pastikan model memiliki 2 output
-                if not isinstance(self.model.output, list) or len(self.model.output) != 2:
-                    self.logger.warning("Model lama tidak kompatibel → rebuild required.")
-                    self.model = None
-                    model_exists = False
-                else:
-                    # Recompile dengan metrics custom
+                self.logger.info(f"CNN DEBUG: Mencoba memuat model dari {model_path}...")
+                temp_model = load_model(model_path, compile=False)
+                
+                # --- [SAFETY CHECK 1]: Validasi Struktur Output (2 Heads) ---
+                valid_output = isinstance(temp_model.output, list) and len(temp_model.output) == 2
+                
+                # --- [SAFETY CHECK 2]: Validasi Input Shape (Grid Size Match) ---
+                # Input shape biasanya (None, H, W, C). Kita cek H dan W.
+                input_shape = temp_model.input_shape
+                # Handle jika input_shape berupa list (multiple inputs) atau tuple
+                if isinstance(input_shape, list): 
+                    input_shape = input_shape[0]
+                
+                # Cek dimensi (biasanya index 1 dan 2 adalah H dan W)
+                # input_shape[1] harus sama dengan self.grid_size
+                current_shape_match = (input_shape[1] == self.grid_size) and (input_shape[2] == self.grid_size)
+
+                if valid_output and current_shape_match:
+                    self.model = temp_model
                     self.model.compile(
                         optimizer=Adam(0.001),
-                        loss=["categorical_crossentropy", "mse"],
+                        loss={"dir_output": "categorical_crossentropy", "angle_output": "mse"},
                         metrics={"dir_output": "accuracy", "angle_output": "mae"}
                     )
-                    self.logger.info("Model CNN berhasil dimuat dari disk dan valid.")
+                    self.logger.info("CNN DEBUG: Model valid & kompatibel (Grid Size cocok).")
+                else:
+                    if not valid_output:
+                        self.logger.warning("CNN DEBUG: Model lama struktur outputnya salah (Bukan 2 Head).")
+                    if not current_shape_match:
+                        self.logger.warning(f"CNN DEBUG: Model lama beda ukuran grid! (Model: {input_shape[1]} vs Config: {self.grid_size}).")
+                    
+                    self.logger.warning("CNN DEBUG: Membuang model lama & memaksa Rebuild.")
+                    self.model = None # Force Rebuild
+
             except Exception as e:
-                self.logger.warning(f"Model corrupt/incompatible → force rebuild. Error: {e}")
+                self.logger.warning(f"CNN DEBUG: Gagal load model (Corrupt/Error): {e}. Force rebuild.")
                 self.model = None
-                model_exists = False
 
-        if not model_exists or self.model is None:
-            self.logger.info("Membangun ulang model CNN dari awal...")
-
-            # Sesuai catatan client: 5 input, hidden 2–3 layer, output 2 node
+        # Jika model None (karena belum ada ATAU tidak valid), bangun baru
+        if self.model is None:
+            self.logger.info(f"CNN DEBUG: Membangun ulang Simple CNN baru (Grid: {self.grid_size})...")
             self.model = self.architect.build_model(
-                input_shape=(self.grid_size, self.grid_size, self.input_channels),  # 5 channel
-                hidden_nodes=[128, 64]  # atau [128,64,32] bebas
-            )
-
-            # Compile dengan loss sesuai output
-            self.model.compile(
-                optimizer=Adam(0.001),
-                loss=["categorical_crossentropy", "mse"],
-                metrics={"dir_output": "accuracy", "angle_output": "mae"}
+                input_shape=(self.grid_size, self.grid_size, 5),
+                hidden_nodes=[128, 64]
             )
 
         # --------------------------------------------------------
-        # 5. TRAINING LOOP (SISIPKAN INI)
-        # Bagian ini wajib ada supaya training_log.csv terupdate
+        # 4. TRAINING LOOP
         # --------------------------------------------------------
         if X_train is not None and len(X_train) >= 2:
             self.logger.info(f"CNN DEBUG: [Step 4] Training Start ({self.epochs} epochs)...")
             
-            # Definisi Callbacks
             callbacks_list = [
-                # Simpan model terbaik
                 ModelCheckpoint(self.paths["model_file"], save_best_only=True, verbose=0),
-                # CATAT LOG TRAINING (Ini yang Anda cari)
-                CSVLogger(self.paths["training_log"], append=True) 
+                CSVLogger(self.paths.get("training_log", "training_log.csv"), append=True) 
             ]
             
             try:
-                # Lakukan Training
                 self.model.fit(
                     X_train, y_train_dict,
                     batch_size=self.batch_size,
@@ -619,100 +677,71 @@ class CNNEngine:
                     verbose=0,
                     callbacks=callbacks_list
                 )
-                self.logger.info("CNN DEBUG: Training selesai, log tersimpan.")
+                self.logger.info("CNN DEBUG: Training selesai.")
             except Exception as e:
                 self.logger.error(f"CNN Training Error: {e}")
-        else:
-            self.logger.warning("CNN DEBUG: Data training tidak cukup (<2 samples), skip training.")
 
         # --------------------------------------------------------
-        # 4. PREDICTION PHASE
+        # 5. PREDICTION PHASE
         # --------------------------------------------------------
         try:
-            self.logger.info("CNN DEBUG: [Step 5] Prediksi pada Full Data.")
+            self.logger.info("CNN DEBUG: [Step 5] Prediksi Data Terkini.")
 
-            X_full = np.array([self.tensor_builder.construct_input_tensor(r)
-                               for _, r in df_main.iterrows()])
+            X_full = np.array([self.tensor_builder.construct_input_tensor(r) for _, r in df_proc.iterrows()])
 
-            # Safety fix shape
-            if X_full.ndim != 4 or X_full.shape[-1] != self.input_channels:
-                fixed = np.zeros((len(X_full), self.grid_size, self.grid_size, self.input_channels), dtype=np.float32)
-                h = min(X_full.shape[1], self.grid_size)
-                w = min(X_full.shape[2], self.grid_size)
-                d = min(X_full.shape[3], self.input_channels)
-                fixed[:, :h, :w, :d] = X_full[:, :h, :w, :d]
-                X_full = fixed
-
+            # Safety Check Dimensi Tensor sebelum masuk model
+            if X_full.ndim != 4:
+                 self.logger.warning("CNN DEBUG: Dimensi tensor salah.")
+            
+            # Predict
             preds = self.model.predict(X_full, verbose=0)
-
-            # Validasi output model
-            if not isinstance(preds, (list, tuple)) or len(preds) != 2:
-                self.logger.critical(f"CNN CRASH: Output model tidak sesuai.")
-                return df_main
-
             pred_dir_probs, pred_angle_norm = preds
 
-            # Ambil data baris terakhir untuk disimpan sebagai state terkini
+            # --- AMBIL DATA EVENT TERAKHIR (LATEST) ---
             last_idx = -1
             
-            # 1. Output Arah (4 Sumbu)
-            dir_probs = pred_dir_probs[last_idx]
-            arah_idx = np.argmax(dir_probs)
-            # Mapping 4 sumbu
+            # 1. Output Arah
+            latest_dir_probs = pred_dir_probs[last_idx]
+            arah_idx = np.argmax(latest_dir_probs)
             dir_map = {0: "Timur", 1: "Barat", 2: "Selatan", 3: "Utara"} 
             arah_str = dir_map.get(arah_idx, "Unknown")
             
             # 2. Output Sudut
             az = float(pred_angle_norm.flatten()[last_idx]) * 360.0
-
-            # 3. Output Risiko (k) sebagai ARRAY [PERBAIKAN UTAMA]
-            # Client minta risiko (k) dibuat array. Kita ambil max probability sebagai confidence.
-            raw_conf = float(np.max(dir_probs))
             
-            # Teknik "Clipping": Batasi keyakinan maksimal di 95% agar realistis
-            # Karena gempa adalah fenomena alam yang tidak mungkin diprediksi 100%
-            conf_val = min(raw_conf, 0.95) 
-            
-            # Update array risiko dengan nilai yang sudah di-limit
+            # 3. Output Risiko (k) sebagai ARRAY
+            raw_conf = float(np.max(latest_dir_probs))
+            conf_val = min(raw_conf, 0.95)
             risk_array = np.array([conf_val])
 
-            # Simpan ke CSV
+            # Simpan Log
             output_df = pd.DataFrame([{
                 "timestamp": pd.Timestamp.now(),
                 "arah_prediksi": arah_str,
                 "arah_derajat": az,
                 "risk_k_array": str(risk_array.tolist()), 
-                "confidence_scalar": conf_val,
-                "sumber": "CNN_Simple_Adaptive"
+                "confidence": conf_val,
+                "sumber": "SimpleCNN_V2"
             }])
-
+            
             out_path = self.paths.get("cnn_prediction_out")
             if out_path:
                 os.makedirs(os.path.dirname(out_path), exist_ok=True)
-                
-                # Cek apakah file sudah ada. Jika sudah, append tanpa header.
-                # Jika belum, buat baru dengan header.
-                file_exists = os.path.isfile(out_path)
-                
-                output_df.to_csv(
-                    out_path, 
-                    mode='a',          # 'a' berarti APPEND (tambahkan ke bawah)
-                    header=not file_exists, # Tulis header hanya jika file belum ada
-                    index=False
-                )
-                # ----------------------------------------------------
+                output_df.to_csv(out_path, mode='a', header=not os.path.exists(out_path), index=False)
 
-                self.logger.info(
-                    f"CNN OUTPUT SAVED -> Arah: {arah_str} ({az:.2f}°) | Risk Array: {risk_array}"
-                )
+            self.logger.info(f"CNN RESULT: Arah={arah_str}, Sudut={az:.2f}, RiskArray={risk_array}")
 
-            # [PENTING] Kembalikan nilai ke df_main agar bisa diambil GA
-            # Kita inject kolom khusus untuk array risiko
-            df_main["CNN_Risk_Array"] = None 
+            # Inject ke DataFrame
+            if "CNN_Risk_Array" not in df_main.columns:
+                df_main["CNN_Risk_Array"] = None
+                df_main["CNN_Risk_Array"] = df_main["CNN_Risk_Array"].astype(object)
+
             df_main.at[df_main.index[-1], "CNN_Risk_Array"] = risk_array
+            df_main.at[df_main.index[-1], "CNN_Pred_Arah"] = arah_str
+            df_main.at[df_main.index[-1], "CNN_Pred_Sudut"] = az
 
         except Exception as e:
             self.logger.critical(f"CNN CRASH PRED: Error saat prediksi: {e}")
-            df_main["Proporsi_Grid_Terdampak_CNN"] = 0.0
+            df_main.at[df_main.index[-1], "CNN_Risk_Array"] = np.array([0.0])
 
         return df_main

@@ -55,7 +55,10 @@ def check_consistency(arah_label, sudut):
 
 # --- FUNGSI PLOT KOMPAS (FIXED) ---
 def plot_compass_fixed(sudut_derajat, arah_label, is_consistent, zone_real):
-    sudut_vis = (450 - sudut_derajat) % 360 # Konversi rotasi matematika ke kompas
+    # Visualisasi Kompas: 0 derajat di Utara (Atas)
+    # Kita tidak perlu konversi 450 - x jika input sudah azimut kompas.
+    # Asumsi: Model output adalah Azimuth (0=U, 90=T, 180=S, 270=B)
+    
     color = "green" if is_consistent else "orange"
     
     fig = go.Figure()
@@ -97,7 +100,7 @@ def plot_compass_fixed(sudut_derajat, arah_label, is_consistent, zone_real):
     )
     return fig
 
-# --- FUNGSI BARU: PLOT PERGESERAN VEKTOR (SPATIO-TEMPORAL) ---
+# --- FUNGSI PLOT PERGESERAN VEKTOR (SPATIO-TEMPORAL) ---
 def plot_movement_vector(df_input):
     if df_input is None or len(df_input) < 2:
         return None, "Data tidak cukup untuk analisis vektor."
@@ -191,14 +194,17 @@ def main():
         sudut = float(last_pred['arah_derajat'])
         risk_arr = last_pred.get('risk_k_array', '[0.0]')
         
+        # [FIX] Handle nama kolom confidence (bisa 'confidence' atau 'confidence_scalar')
+        conf = last_pred.get('confidence', last_pred.get('confidence_scalar', 0.0))
+        
         # Cek konsistensi
         is_consistent, zone_real = check_consistency(arah_lbl, sudut)
 
         # --- LAYOUT ATAS: METRICS ---
         col1, col2, col3 = st.columns(3)
         col1.metric("Arah Prediksi", f"{arah_lbl}", delta=f"{sudut:.1f}°")
-        col2.metric("Confidence Level", f"{last_pred.get('confidence_scalar', 0.0):.2%}")
-        col3.metric("Status Model", "Spatio-Temporal (v3.3)", "Active")
+        col2.metric("Confidence Level", f"{conf:.2%}")
+        col3.metric("Status Model", "Simple CNN (v3.3)", "Active")
 
         st.divider()
 
@@ -233,7 +239,15 @@ def main():
         # --- TABEL DATA ---
         st.divider()
         st.subheader("📜 Riwayat Prediksi Terbaru")
-        st.dataframe(df.tail(10)[['timestamp', 'arah_prediksi', 'arah_derajat', 'confidence_scalar']].sort_values('timestamp', ascending=False))
+        
+        # [FIX] Pastikan kolom confidence ditampilkan dengan benar
+        cols_to_show = ['timestamp', 'arah_prediksi', 'arah_derajat']
+        if 'confidence' in df.columns:
+            cols_to_show.append('confidence')
+        elif 'confidence_scalar' in df.columns:
+            cols_to_show.append('confidence_scalar')
+            
+        st.dataframe(df.tail(10)[cols_to_show].sort_values('timestamp', ascending=False))
 
     else:
         st.warning("Belum ada data prediksi CNN (File csv output belum tersedia). Jalankan `cnn_engine.py` terlebih dahulu.")

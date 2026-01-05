@@ -116,10 +116,14 @@ def load_dashboard_data():
             df = pd.read_csv(FILES["cnn_csv"])
             if not df.empty:
                 latest = df.iloc[-1] # Ambil prediksi paling baru
+                
+                # [FIX] Handle nama kolom confidence (bisa 'confidence' atau 'confidence_scalar')
+                conf_val = latest.get("confidence", latest.get("confidence_scalar", 0.0))
+                
                 data["cnn_stats"] = {
                     "arah_str": latest.get("arah_prediksi", "Unknown"),
                     "sudut": float(latest.get("arah_derajat", 0.0)),
-                    "conf": float(latest.get("confidence_scalar", 0.0))
+                    "conf": float(conf_val)
                 }
         except Exception as e:
             data["debug_log"].append(f"Gagal baca CNN CSV: {e}")
