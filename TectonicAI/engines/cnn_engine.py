@@ -229,128 +229,131 @@ class TensorConstructor:
 # ============================================================
 
 class CNNModelArchitect:
-    def build_model(self, input_shape=(32,32,5), hidden_nodes=[128,64]) -> tf.keras.Model:
+    def build_model(
+        self,
+        input_shape=(32, 32, 5), # menerima 5 input dan grid 32x32
+        hidden_nodes=[32, 16] # hidden node yang digunakan ada 2 (32 dan 16)
+    ) -> tf.keras.Model:
         """
-        ARSITEKTUR MODEL: SIMPLE CNN (BUKAN U-NET / BUKAN DEEP CNN)
+        SIMPLE CNN — 1 CONV BLOCK (CLIENT VERSION)
 
-        RINGKASAN:
-        - Input           : 32×32×5
-        - Convolution     : 2 blok (32 filter, 64 filter)
-        - Hidden Layer    : 2 Dense layer (128 node, 64 node)
-        - Output          : 2 head (4 node arah, 1 node sudut)
+        - Input   : 32×32×5
+        - Conv    : 1 blok (32 filter)
+        - Hidden  : Dense 32 → 16
+        - Output  : 2 head (arah + sudut)
+        Total layer 11 , Total Hidden layer 2
+        Rumus hitung bobot Conv2D: (kernel_height × kernel_width × input_channel + bias) × jumlah_filter
         """
 
         # =========================
-        # INPUT LAYER
+        # INPUT
         # =========================
-        # Input bukan layer trainable (tidak punya bobot & bias)
-        inp = Input(shape=input_shape, name="cnn_input")
-        x = inp
+        # menerima input 5 channel dan grid 32x32
+        inp = Input(shape=input_shape, name="cnn_input") # 1 layer (dihitung sebagai layer arsitektur)
 
-        # =====================================================
-        # FEATURE EXTRACTION (CONVOLUTIONAL PART)
-        # =====================================================
+        # =========================
+        # SINGLE CONV BLOCK
+        # =========================
+        # membaca pola (arah sebaran, pergeseran pusat, dampak area)
+        # setiap filter = satu detektor pola
+        # 1 layer
+        x = Conv2D(
+            filters=32, # jumlah filter
+            kernel_size=(3, 3), # ukuran kernel
+            padding="same",
+            activation="relu", # menggunakan RelU karena cepat, tidak saturasi seperti sigmoid, dan cocok untuk CNN
+            name="conv_block_1"
+        )(inp)
+        # Perhitungan bobot untuk 1 Filter:
+        #  3 × 3 × 5 = 45 bobot
+        # Karena tidak memberikan paramater (use_bias=False) maka tiap filter punya 1 bias
+        # 45 bobot + 1 bias = 46 paramater
+        # Lalu dikalikan dengan jumlah filter
+        # 46 x 32 = 1.472 parameter
+        # karena tiap filter punya 1 bias, maka blok ini ada 32 bias.
 
-        # -----------------------------------------------------
-        # BLOK CONV 1
-        # -----------------------------------------------------
-        # Conv2D:
-        # - Jumlah filter     : 32
-        # - Kernel            : 3×3
-        # - Output            : 32 feature map
-        # - Parameter         : (3×3×5)×32 + 32 bias
-        x = Conv2D(32, (3, 3), padding="same", activation="relu")(x)   # Layer trainable ke-1
+        # Menormalkan output Conv2D dan membantu training lebih stabil
+        # Ini adalah layer yang punya 2 paramater yaitu:
+        # Gamma (γ) mengatur skala fitur
+        # Beta (β) menggeser nilai fitur
+        # per channel
+        x = BatchNormalization(name="bn_1")(x) # 1 layer
+        # jumlah channel 32 dari var x
+        # oleh karena itu: 32 x 2 = 64
 
-        # BatchNormalization:
-        # - Menstabilkan distribusi aktivasi
-        # - Parameter         : 32 gamma + 32 beta
-        x = BatchNormalization()(x)                                    # Layer trainable ke-2
+        # tidak ada bobot dan bias 
+        # termasuk functional layer (non paramatic layer)
+        x = MaxPooling2D( # 1 layer
+            pool_size=(2, 2),
+            name="pool_1"
+        )(x)
+        # jadi bentuk setelah pooling: (None, 16, 16, 32)
 
-        # MaxPooling:
-        # - Downsampling 2×2
-        # - Ukuran berubah   : 32×32 → 16×16
-        # - Tidak punya parameter
-        x = MaxPooling2D((2, 2))(x)                                    # Layer non-trainable
+        # =========================
+        # FEATURE COMPRESSION
+        # =========================
+        x = GlobalAveragePooling2D(name="gap")(x) # 1 layer
+        # Output: (None, 32)
+        """
+        GlobalAveragePooling2D menghasilkan 32 node karena ia merangkum setiap feature map menjadi satu nilai rata-rata.
+        Karena sebelumnya ada 32 channel hasil Conv2D, maka output GAP otomatis menjadi vektor sepanjang 32.    
+        """
+        # Meratakan setiap feature map dan menghindari flatten besar
+        # setiap channelnya 1 niali, jadi 16x16x32 = 32 node
+        # tidak ada bobot
 
-        # Total BLOK 1:
-        # - 3 layer
-        # - 32 filter (feature extractor)
+        # =========================
+        # HIDDEN LAYERS
+        # =========================
+        # disini melakukan looping sebanyak hidden layer: 2 kali
+        for i, nodes in enumerate(hidden_nodes): # 2 layer karena loop 2 x
+            x = Dense(
+                nodes,
+                activation="relu",
+                name=f"dense_hidden_{i+1}"
+            )(x)
+                    # Dense Hidden 1 (32 node)
+                    # input dari GAP: 32 Node
+                    # Perhitungan Bobot dan Bias
+                    # (32 + 1) × 32 = 1.056 parameter 
+                    # Total Bias: 32
 
-        # -----------------------------------------------------
-        # BLOK CONV 2
-        # -----------------------------------------------------
-        # Conv2D:
-        # - Jumlah filter     : 64
-        # - Kernel            : 3×3
-        # - Input channel     : 32
-        # - Parameter         : (3×3×32)×64 + 64 bias
-        x = Conv2D(64, (3, 3), padding="same", activation="relu")(x)   # Layer trainable ke-3
+                    # Dense Hidden 2 (16 node)
+                    # perhitungan 
+                    # (32 + 1) × 16 = 528 parameter
+                    # Total Bias: 16
 
-        # BatchNormalization:
-        # - Parameter         : 64 gamma + 64 beta
-        x = BatchNormalization()(x)                                    # Layer trainable ke-4
+            # 1 layer 
+            x = Dropout(0.3, name=f"dropout_{i+1}")(x) #Menonaktifkan 30% neuron saat training
 
-        # MaxPooling:
-        # - Downsampling 2×2
-        # - Ukuran berubah   : 16×16 → 8×8
-        x = MaxPooling2D((2, 2))(x)                                    # Layer non-trainable
+        # =========================
+        # OUTPUT HEADS
+        # =========================
+        # dense: 2 layer (karena menghasilkan 2 output)
+        # Output direction head
+        # Total : 4 bias / 1 fitur 1 bias / 1 bias per neuron
+        dir_out = Dense( 
+            4,
+            activation="softmax", # karena output berupa probabilitas
+            name="dir_output"
+        )(x)
+        # (16 + 1) × 4 = 68 parameter
 
-        # Total BLOK 2:
-        # - 3 layer
-        # - 64 filter
+        # Total : 1 bias 
+        angle_out = Dense(
+            1,
+            activation="linear", # karena regresi nilai kontinu dan tidak membatasi range
+            name="angle_output"
+        )(x)
+        # (16 + 1) × 1 = 17 parameter
 
-        # =====================================================
-        # FLATTENING / FEATURE COMPRESSION
-        # =====================================================
-
-        # GlobalAveragePooling:
-        # - Mengambil rata-rata tiap feature map
-        # - Mengubah 8×8×64 → 64 node
-        # - Tidak punya parameter
-        x_flat = GlobalAveragePooling2D()(x)
-
-        # =====================================================
-        # HIDDEN LAYERS (FULLY CONNECTED)
-        # =====================================================
-
-        # Hidden Layer 1:
-        # - Dense 128 node
-        # - Parameter         : 64×128 + 128 bias
-        # Hidden Layer 2:
-        # - Dense 64 node
-        # - Parameter         : 128×64 + 64 bias
-        for nodes in hidden_nodes:
-            x_flat = Dense(nodes, activation="relu")(x_flat)          # Layer trainable
-            x_flat = Dropout(0.3)(x_flat)                              # Regularization (tidak trainable)
-
-        # Total Hidden Layer:
-        # - 2 hidden layer
-        # - Node: 128 → 64
-
-        # =====================================================
-        # OUTPUT LAYERS (MULTI-HEAD)
-        # =====================================================
-
-        # OUTPUT HEAD 1 — ARAH
-        # - Dense 4 node
-        # - Softmax
-        # - Mewakili 4 kelas: Timur, Barat, Selatan, Utara
-        # - Parameter         : 64×4 + 4 bias
-        dir_out = Dense(4, activation="softmax", name="dir_output")(x_flat)
-
-        # OUTPUT HEAD 2 — SUDUT
-        # - Dense 1 node
-        # - Linear (regresi)
-        # - Parameter         : 64×1 + 1 bias
-        angle_out = Dense(1, activation="linear", name="angle_output")(x_flat)
-
-        # =====================================================
-        # BUILD & COMPILE MODEL
-        # =====================================================
+        # =========================
+        # MODEL BUILD
+        # =========================
         model = Model(
             inputs=inp,
             outputs=[dir_out, angle_out],
-            name="SimpleCNN_Adaptive_v4"
+            name="SimpleCNN_OneBlock_v1"
         )
 
         model.compile(
@@ -366,6 +369,7 @@ class CNNModelArchitect:
         )
 
         return model
+
 
 
 # ============================================================
@@ -655,7 +659,7 @@ class CNNEngine:
             self.logger.info(f"CNN DEBUG: Membangun ulang Simple CNN baru (Grid: {self.grid_size})...")
             self.model = self.architect.build_model(
                 input_shape=(self.grid_size, self.grid_size, 5),
-                hidden_nodes=[128, 64]
+                hidden_nodes=[32, 16]
             )
 
         # --------------------------------------------------------
