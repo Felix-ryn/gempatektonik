@@ -60,6 +60,11 @@ def sync_len(*arrays):
             synced.append(a[:min_len])
     return tuple(synced)
 
+def calculate_angular_diff(pred_angle, true_angle):
+    """Menghitung selisih sudut terkecil antara dua arah (0-360)."""
+    diff = abs(pred_angle - true_angle)
+    return min(diff, 360.0 - diff)
+
 def extract_direction_and_angle(mask: np.ndarray) -> Tuple[float, float, float]:
     """
     Ekstrak arah (azimuth), sudut sebaran, dan confidence dari output CNN mask.
@@ -566,35 +571,58 @@ class CNNEngine:
             df['Radius_prev'] = 0.0
 
         return df
+
+    # --------------------------------------------------------
+    #  (VALIDASI & SPLIT TAHUN)
     # --------------------------------------------------------
     def train_and_predict(self, df_main: pd.DataFrame, train_indices=None, test_indices=None, **kwargs):
         """
-        Main Pipeline: Load Data -> Build Tensors (5 Channels) -> Train -> Predict (Arah, Sudut, Risk Array)
-        Sesuai Spesifikasi Client: Simple CNN Adaptif.
-        [FIXED]: Auto-detect input shape mismatch untuk mencegah crash loading model lama.
+        Main Pipeline: Smart Split, Validasi, Smart Backfill, dan FORMAT CSV YANG SESUAI DASHBOARD LAMA.
         """
-        self.logger.info("CNN DEBUG: [Step 1] Memulai CNN Execution.")
-        
+        self.logger.info("CNN DEBUG: [Step 1] Memulai CNN Execution (Smart Split Mode).")
+
         # 0. Check TensorFlow
         if not HAS_TF:
-            self.logger.error("CNN Disabled (TensorFlow missing). Returning fallback values.")
+            self.logger.error("CNN Disabled (TensorFlow missing).")
             df_main["CNN_Risk_Array"] = np.array([0.0])
             return df_main
-            
-        # 1. Load & Prepare Data (Inject History H-1)
+
+        # 1. Load & Prepare Data
         df_proc = self._inject_history_features(df_main)
-        self.logger.info(f"CNN DEBUG: [Step 2] Data diproses, {len(df_proc)} baris. Fitur H-1 injected.")
+        
+        # Pastikan kolom timestamp ada
+        if 'timestamp' not in df_proc.columns:
+            df_proc['timestamp'] = pd.date_range(start='2022-01-01', periods=len(df_proc), freq='D')
 
         # --------------------------------------------------------
-        # 2. TRAINING PHASE (Tensor Building)
+        # 2. SMART SPLIT LOGIC
         # --------------------------------------------------------
-        train_samples = df_proc[
-            (df_proc.get("Context_Impact_Radius", 0) > 0) | 
-            (df_proc.get("R_true", 0) > 0)
+        max_date = df_proc['timestamp'].max()
+        has_2025 = max_date.year >= 2025
+
+        if has_2025:
+            cutoff_date = pd.Timestamp("2024-12-31 23:59:59")
+            self.logger.info("CNN SCENARIO: Data 2025 Terdeteksi. Mode Validasi: Train 2022-2024 -> Test 2025.")
+        else:
+            cutoff_date = pd.Timestamp("2023-12-31 23:59:59")
+            self.logger.info("CNN SCENARIO: Data 2025 Kosong. Mode Fallback: Train 2022-2023 -> Test 2024.")
+
+        train_df = df_proc[df_proc['timestamp'] <= cutoff_date].copy()
+        test_df = df_proc[df_proc['timestamp'] > cutoff_date].copy()
+
+        if len(train_df) < 5:
+            self.logger.warning("CNN WARN: Data training terlalu sedikit (<5). Pakai semua data.")
+            train_df = df_proc.copy()
+            test_df = pd.DataFrame()
+
+        # --------------------------------------------------------
+        # 3. TRAINING PHASE
+        # --------------------------------------------------------
+        train_samples = train_df[
+            (train_df.get("Context_Impact_Radius", 0) > 0) | 
+            (train_df.get("R_true", 0) > 0)
         ]
-        
-        self.logger.info(f"CNN DEBUG: [Step 3] Membangun tensor training ({len(train_samples)} valid samples).")
-        
+
         X_train = None
         y_train_dict = None
 
@@ -607,145 +635,138 @@ class CNNEngine:
                 "angle_output": np.array([g["angle_output"] for g in gt_list])  
             }
 
-        # --------------------------------------------------------
-        # 3. MODEL MANAGEMENT (Robust Load vs Rebuild)
-        # --------------------------------------------------------
-        model_path = self.paths.get("model_file", "")
-        model_exists = os.path.exists(model_path)
-        self.model = None # Reset model state
-        
-        if model_exists:
-            try:
-                self.logger.info(f"CNN DEBUG: Mencoba memuat model dari {model_path}...")
-                temp_model = load_model(model_path, compile=False)
-                
-                # --- [SAFETY CHECK 1]: Validasi Struktur Output (2 Heads) ---
-                valid_output = isinstance(temp_model.output, list) and len(temp_model.output) == 2
-                
-                # --- [SAFETY CHECK 2]: Validasi Input Shape (Grid Size Match) ---
-                # Input shape biasanya (None, H, W, C). Kita cek H dan W.
-                input_shape = temp_model.input_shape
-                # Handle jika input_shape berupa list (multiple inputs) atau tuple
-                if isinstance(input_shape, list): 
-                    input_shape = input_shape[0]
-                
-                # Cek dimensi (biasanya index 1 dan 2 adalah H dan W)
-                # input_shape[1] harus sama dengan self.grid_size
-                current_shape_match = (input_shape[1] == self.grid_size) and (input_shape[2] == self.grid_size)
-
-                if valid_output and current_shape_match:
-                    self.model = temp_model
-                    self.model.compile(
-                        optimizer=Adam(0.001),
-                        loss={"dir_output": "categorical_crossentropy", "angle_output": "mse"},
-                        metrics={"dir_output": "accuracy", "angle_output": "mae"}
-                    )
-                    self.logger.info("CNN DEBUG: Model valid & kompatibel (Grid Size cocok).")
-                else:
-                    if not valid_output:
-                        self.logger.warning("CNN DEBUG: Model lama struktur outputnya salah (Bukan 2 Head).")
-                    if not current_shape_match:
-                        self.logger.warning(f"CNN DEBUG: Model lama beda ukuran grid! (Model: {input_shape[1]} vs Config: {self.grid_size}).")
-                    
-                    self.logger.warning("CNN DEBUG: Membuang model lama & memaksa Rebuild.")
-                    self.model = None # Force Rebuild
-
-            except Exception as e:
-                self.logger.warning(f"CNN DEBUG: Gagal load model (Corrupt/Error): {e}. Force rebuild.")
-                self.model = None
-
-        # Jika model None (karena belum ada ATAU tidak valid), bangun baru
         if self.model is None:
-            self.logger.info(f"CNN DEBUG: Membangun ulang Simple CNN baru (Grid: {self.grid_size})...")
-            self.model = self.architect.build_model(
-                input_shape=(self.grid_size, self.grid_size, 5),
-                hidden_nodes=[32, 16]
-            )
+             self.model = self.architect.build_model(input_shape=(self.grid_size, self.grid_size, 5))
 
-        # --------------------------------------------------------
-        # 4. TRAINING LOOP
-        # --------------------------------------------------------
         if X_train is not None and len(X_train) >= 2:
-            self.logger.info(f"CNN DEBUG: [Step 4] Training Start ({self.epochs} epochs)...")
-            
             callbacks_list = [
-                ModelCheckpoint(self.paths["model_file"], save_best_only=True, verbose=0),
+                ModelCheckpoint(self.paths["model_file"], monitor='loss', save_best_only=True, verbose=0),
                 CSVLogger(self.paths.get("training_log", "training_log.csv"), append=True) 
             ]
-            
+            self.model.fit(X_train, y_train_dict, batch_size=self.batch_size, epochs=self.epochs, verbose=0, callbacks=callbacks_list)
+
+        # --------------------------------------------------------
+        # 4. PREDICTION LOGIC (WITH SMART BACKFILL)
+        # --------------------------------------------------------
+        if len(train_df) == 0:
+            return df_main
+
+        # Cek apakah CSV sudah ada isinya?
+        out_path = self.paths.get("cnn_prediction_out")
+        csv_exists_and_filled = False
+        if out_path and os.path.exists(out_path):
             try:
-                self.model.fit(
-                    X_train, y_train_dict,
-                    batch_size=self.batch_size,
-                    epochs=self.epochs,
-                    verbose=0,
-                    callbacks=callbacks_list
-                )
-                self.logger.info("CNN DEBUG: Training selesai.")
-            except Exception as e:
-                self.logger.error(f"CNN Training Error: {e}")
+                with open(out_path, 'r') as f:
+                    if len(f.readlines()) > 1:
+                        csv_exists_and_filled = True
+            except:
+                pass
+        
+        # LOGIC BACKFILL: Jika CSV kosong, ambil 10 data terakhir. Jika tidak, ambil 1 data terakhir.
+        if not csv_exists_and_filled:
+            self.logger.info("CNN INFO: Log CSV kosong. Mengaktifkan 'Smart Backfill' (10 data historis)...")
+            rows_to_predict = train_df.tail(10).iterrows() 
+        else:
+            rows_to_predict = train_df.tail(1).iterrows()
 
-        # --------------------------------------------------------
-        # 5. PREDICTION PHASE
-        # --------------------------------------------------------
-        try:
-            self.logger.info("CNN DEBUG: [Step 5] Prediksi Data Terkini.")
+        # Variabel penampung hasil akhir untuk injection
+        final_risk_array = np.array([0.0])
+        final_pred_arah = "Unknown"
+        final_pred_sudut = 0.0
+        final_validation_note = "No Data"
 
-            X_full = np.array([self.tensor_builder.construct_input_tensor(r) for _, r in df_proc.iterrows()])
-
-            # Safety Check Dimensi Tensor sebelum masuk model
-            if X_full.ndim != 4:
-                 self.logger.warning("CNN DEBUG: Dimensi tensor salah.")
-            
+        for idx_row, row_data in rows_to_predict:
             # Predict
-            preds = self.model.predict(X_full, verbose=0)
+            X_pred = np.array([self.tensor_builder.construct_input_tensor(row_data)])
+            preds = self.model.predict(X_pred, verbose=0)
             pred_dir_probs, pred_angle_norm = preds
 
-            # --- AMBIL DATA EVENT TERAKHIR (LATEST) ---
-            last_idx = -1
-            
-            # 1. Output Arah
-            latest_dir_probs = pred_dir_probs[last_idx]
-            arah_idx = np.argmax(latest_dir_probs)
+            arah_idx = np.argmax(pred_dir_probs[0])
             dir_map = {0: "Timur", 1: "Barat", 2: "Selatan", 3: "Utara"} 
-            arah_str = dir_map.get(arah_idx, "Unknown")
-            
-            # 2. Output Sudut
-            az = float(pred_angle_norm.flatten()[last_idx]) * 360.0
-            
-            # 3. Output Risiko (k) sebagai ARRAY
-            raw_conf = float(np.max(latest_dir_probs))
-            conf_val = min(raw_conf, 0.95)
-            risk_array = np.array([conf_val])
+            pred_arah = dir_map.get(arah_idx, "Unknown")
+            pred_sudut = float(pred_angle_norm[0][0]) * 360.0
+            confidence = float(np.max(pred_dir_probs[0]))
+            risk_array = np.array([confidence])
 
-            # Simpan Log
-            output_df = pd.DataFrame([{
-                "timestamp": pd.Timestamp.now(),
-                "arah_prediksi": arah_str,
-                "arah_derajat": az,
-                "risk_k_array": str(risk_array.tolist()), 
-                "confidence": conf_val,
-                "sumber": "SimpleCNN_V2"
-            }])
+            # --- VALIDASI ---
+            validation_note = "Menunggu Data Masa Depan"
+            diff_angle = -1.0
+            status_validasi = "PENDING"
             
-            out_path = self.paths.get("cnn_prediction_out")
+            if not test_df.empty:
+                actual_event = test_df.iloc[0]
+                actual_sudut = float(actual_event.get("Arah_Derajat", actual_event.get("angle", 0.0)))
+                diff_angle = abs(pred_sudut - actual_sudut)
+                diff_angle = min(diff_angle, 360 - diff_angle)
+                status_validasi = "RELEVAN" if diff_angle <= 60 else "MENYIMPANG"
+                validation_note = (
+                    f"Prediksi {pred_arah} ({pred_sudut:.0f}°), "
+                    f"Aktual ({actual_sudut:.0f}°). Selisih {diff_angle:.1f}°. Status: {status_validasi}"
+                )
+
+            # --- PENYIMPANAN DATA (FIX KEYERROR: KEMBALIKAN NAMA KOLOM LAMA) ---
             if out_path:
-                os.makedirs(os.path.dirname(out_path), exist_ok=True)
-                output_df.to_csv(out_path, mode='a', header=not os.path.exists(out_path), index=False)
+                try:
+                    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+                    
+                    # [PENTING] Menggunakan nama kolom yang SAMA PERSIS dengan Dashboard lama
+                    new_data = {
+                        "timestamp": pd.Timestamp.now(),  # <--- INI KUNCI PERBAIKANNYA (Bukan timestamp_prediksi)
+                        "arah_prediksi": pred_arah,       # Dashboard pakai ini
+                        "arah_derajat": pred_sudut,       # Dashboard pakai ini
+                        "risk_k_array": str(risk_array.tolist()), # Dashboard pakai ini
+                        "confidence_scalar": confidence,  # Dashboard pakai ini
+                        "sumber": "SimpleCNN_SmartBackfill",
+                        
+                        # Metadata tambahan untuk validasi (Dashboard tidak akan error karena ini kolom ekstra)
+                        "basis_data_terakhir": row_data.get('timestamp', pd.Timestamp.now()),
+                        "validasi_note": validation_note,
+                        "selisih_sudut": diff_angle,
+                        "status_validasi": status_validasi
+                    }
+                    output_df = pd.DataFrame([new_data])
+                    
+                    file_exists = os.path.exists(out_path)
+                    # Mode append, header hanya jika file belum ada
+                    output_df.to_csv(out_path, mode='a', header=not file_exists, index=False)
+                    
+                except PermissionError:
+                    self.logger.error(f"GAGAL SIMPAN CSV: File {out_path} sedang dibuka! Tutup file Excelnya.")
+                except Exception as e:
+                    self.logger.error(f"Error saving CSV: {e}")
 
-            self.logger.info(f"CNN RESULT: Arah={arah_str}, Sudut={az:.2f}, RiskArray={risk_array}")
+            # Update variabel akhir
+            final_pred_arah = pred_arah
+            final_pred_sudut = pred_sudut
+            final_validation_note = validation_note
+            final_risk_array = risk_array
 
-            # Inject ke DataFrame
-            if "CNN_Risk_Array" not in df_main.columns:
-                df_main["CNN_Risk_Array"] = None
-                df_main["CNN_Risk_Array"] = df_main["CNN_Risk_Array"].astype(object)
+        self.logger.info("CNN PREDICTION: Selesai memproses batch prediksi (Backfill/Realtime).")
 
-            df_main.at[df_main.index[-1], "CNN_Risk_Array"] = risk_array
-            df_main.at[df_main.index[-1], "CNN_Pred_Arah"] = arah_str
-            df_main.at[df_main.index[-1], "CNN_Pred_Sudut"] = az
+        # --------------------------------------------------------
+        # 6. INJECTION KE DATAFRAME UTAMA
+        # --------------------------------------------------------
+        target_time_col = None
+        for col_name in ['timestamp', 'time', 'Tanggal']:
+            if col_name in df_main.columns:
+                target_time_col = pd.to_datetime(df_main[col_name], errors='coerce')
+                break
+        
+        idx = df_main.index[-1]
+        last_ts = train_df.iloc[-1].get('timestamp', None)
 
-        except Exception as e:
-            self.logger.critical(f"CNN CRASH PRED: Error saat prediksi: {e}")
-            df_main.at[df_main.index[-1], "CNN_Risk_Array"] = np.array([0.0])
+        if target_time_col is not None and last_ts is not None:
+            matches = df_main[target_time_col == last_ts].index
+            if not matches.empty:
+                idx = matches[0]
+
+        if "CNN_Risk_Array" not in df_main.columns:
+            df_main["CNN_Risk_Array"] = None
+            df_main["CNN_Risk_Array"] = df_main["CNN_Risk_Array"].astype(object)
+
+        df_main.at[idx, "CNN_Risk_Array"] = final_risk_array
+        df_main.at[idx, "CNN_Pred_Arah"] = final_pred_arah
+        df_main.at[idx, "CNN_Pred_Sudut"] = final_pred_sudut
+        df_main.at[idx, "CNN_Validasi_Msg"] = final_validation_note
 
         return df_main
