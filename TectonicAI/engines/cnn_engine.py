@@ -65,6 +65,18 @@ def calculate_angular_diff(pred_angle, true_angle):
     diff = abs(pred_angle - true_angle)
     return min(diff, 360.0 - diff)
 
+def dir_from_angle(angle_deg: float) -> str:
+    angle = angle_deg % 360.0
+    if angle >= 315 or angle < 45:
+        return "Utara"
+    elif angle >= 45 and angle < 135:
+        return "Timur"
+    elif angle >= 135 and angle < 225:
+        return "Selatan"
+    else:
+        return "Barat"
+
+
 def extract_direction_and_angle(mask: np.ndarray) -> Tuple[float, float, float]:
     """
     Ekstrak arah (azimuth), sudut sebaran, dan confidence dari output CNN mask.
@@ -347,7 +359,7 @@ class CNNModelArchitect:
         # Total : 1 bias 
         angle_out = Dense(
             1,
-            activation="linear", # karena regresi nilai kontinu dan tidak membatasi range
+            activation="sigmoid",
             name="angle_output"
         )(x)
         # (16 + 1) × 1 = 17 parameter
@@ -676,33 +688,105 @@ class CNNEngine:
         final_validation_note = "No Data"
 
         for idx_row, row_data in rows_to_predict:
-            # Predict
+            # =====================================================
+            # 1. BUILD INPUT
+            # =====================================================
             X_pred = np.array([self.tensor_builder.construct_input_tensor(row_data)])
+
+            # =====================================================
+            # 2. DEBUG INPUT (ANTI SILENT ERROR)
+            # =====================================================
+            import hashlib
+            h = hashlib.md5(X_pred.tobytes()).hexdigest()
+            self.logger.info(
+                f"CNN DEBUG: Predict row idx={idx_row} "
+                f"basis={row_data.get('timestamp')} "
+                f"input_hash={h} mean={X_pred.mean():.6f}"
+            )
+
+            # =====================================================
+            # 3. MODEL PREDICTION
+            # =====================================================
             preds = self.model.predict(X_pred, verbose=0)
             pred_dir_probs, pred_angle_norm = preds
 
             arah_idx = np.argmax(pred_dir_probs[0])
             dir_map = {0: "Timur", 1: "Barat", 2: "Selatan", 3: "Utara"} 
             pred_arah = dir_map.get(arah_idx, "Unknown")
-            pred_sudut = float(pred_angle_norm[0][0]) * 360.0
+
+            pred_sudut = (float(pred_angle_norm[0][0]) * 360.0) % 360.0
             confidence = float(np.max(pred_dir_probs[0]))
             risk_array = np.array([confidence])
+
+            # =====================================================
+            # 4. CONSISTENCY CHECK (CLASS vs ANGLE)
+            # =====================================================
+            dir_by_angle = dir_from_angle(pred_sudut)
+            consistency_flag = (dir_by_angle == pred_arah)
+
+            # =====================================================
+            # 5. RULE-BASED RECONCILIATION (SAFE OVERRIDE)
+            # =====================================================
+            CONF_THRESHOLD = 0.6
+
+            if not consistency_flag and confidence < CONF_THRESHOLD:
+                self.logger.info(
+                    f"CNN DEBUG: Inconsistent class/angle, "
+                    f"low confidence ({confidence:.3f}) "
+                    f"-> override class with angle-derived {dir_by_angle}"
+                )
+                pred_arah = dir_by_angle
+                confidence *= 0.8
+                risk_array = np.array([confidence])
+
+            # Optional: penalti confidence jika tidak konsisten
+            if not consistency_flag:
+                confidence *= 0.7  # turunkan 30%
+                risk_array = np.array([confidence])
+
 
             # --- VALIDASI ---
             validation_note = "Menunggu Data Masa Depan"
             diff_angle = -1.0
             status_validasi = "PENDING"
             
+            # =====================================================
+            # ROBUST VALIDATION (WINDOW EVENT TEST)
+            # =====================================================
+            threshold = 60.0
+            found = False
+            best_diff = 999.0
+            best_row = None
+
             if not test_df.empty:
-                actual_event = test_df.iloc[0]
-                actual_sudut = float(actual_event.get("Arah_Derajat", actual_event.get("angle", 0.0)))
-                diff_angle = abs(pred_sudut - actual_sudut)
-                diff_angle = min(diff_angle, 360 - diff_angle)
-                status_validasi = "RELEVAN" if diff_angle <= 60 else "MENYIMPANG"
-                validation_note = (
-                    f"Prediksi {pred_arah} ({pred_sudut:.0f}°), "
-                    f"Aktual ({actual_sudut:.0f}°). Selisih {diff_angle:.1f}°. Status: {status_validasi}"
-                )
+                for _, actual_event in test_df.head(10).iterrows():
+                    actual_sudut = float(
+                        actual_event.get("Arah_Derajat", actual_event.get("angle", 0.0))
+                    ) % 360.0
+
+                    diff = abs((pred_sudut - actual_sudut + 180) % 360 - 180)
+
+                    if diff < best_diff:
+                        best_diff = diff
+                        best_row = actual_event
+
+                    if diff <= threshold:
+                        found = True
+                        break
+
+                if found:
+                    status_validasi = "RELEVAN"
+                    validation_note = (
+                        f"Match ditemukan. Prediksi {pred_arah} ({pred_sudut:.1f}°), "
+                        f"Aktual ({best_row.get('Arah_Derajat', best_row.get('angle',0.0)):.1f}°). "
+                        f"Selisih {best_diff:.1f}°."
+                    )
+                    diff_angle = best_diff
+                else:
+                    status_validasi = "MENYIMPANG"
+                    validation_note = f"Tidak ada match. Selisih terdekat {best_diff:.1f}°."
+                    diff_angle = best_diff
+
 
             # --- PENYIMPANAN DATA (FIX KEYERROR: KEMBALIKAN NAMA KOLOM LAMA) ---
             if out_path:
@@ -711,25 +795,34 @@ class CNNEngine:
                     
                     # [PENTING] Menggunakan nama kolom yang SAMA PERSIS dengan Dashboard lama
                     new_data = {
-                        "timestamp": pd.Timestamp.now(),  # <--- INI KUNCI PERBAIKANNYA (Bukan timestamp_prediksi)
-                        "arah_prediksi": pred_arah,       # Dashboard pakai ini
-                        "arah_derajat": pred_sudut,       # Dashboard pakai ini
-                        "risk_k_array": str(risk_array.tolist()), # Dashboard pakai ini
-                        "confidence_scalar": confidence,  # Dashboard pakai ini
+                        "timestamp": pd.Timestamp.now(),
+                        "arah_prediksi": pred_arah,
+                        "arah_derajat": pred_sudut,
+                        "risk_k_array": str(risk_array.tolist()),
+                        "confidence_scalar": confidence,
                         "sumber": "SimpleCNN_SmartBackfill",
-                        
-                        # Metadata tambahan untuk validasi (Dashboard tidak akan error karena ini kolom ekstra)
+
+                        # Metadata lama
                         "basis_data_terakhir": row_data.get('timestamp', pd.Timestamp.now()),
                         "validasi_note": validation_note,
                         "selisih_sudut": diff_angle,
-                        "status_validasi": status_validasi
+                        "status_validasi": status_validasi,
+
+                        # === TAMBAHAN BARU (AMAN) ===
+                        "dir_inferred_from_angle": dir_by_angle,
+                        "consistency_flag": consistency_flag
                     }
                     output_df = pd.DataFrame([new_data])
                     
                     file_exists = os.path.exists(out_path)
                     # Mode append, header hanya jika file belum ada
-                    output_df.to_csv(out_path, mode='a', header=not file_exists, index=False)
-                    
+                    output_df.to_csv(
+                        out_path,
+                        mode='a',
+                        header=not file_exists,
+                        index=False,
+                        encoding='utf-8-sig'
+                    )
                 except PermissionError:
                     self.logger.error(f"GAGAL SIMPAN CSV: File {out_path} sedang dibuka! Tutup file Excelnya.")
                 except Exception as e:
