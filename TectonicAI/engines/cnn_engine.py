@@ -10,6 +10,8 @@ import os
 import time
 import matplotlib.pyplot as plt
 import seaborn as sns
+import uuid
+from math import radians, sin, cos, asin, sqrt
 
 # [FIX] Tambahkan Type Hinting yang diperlukan
 from typing import Optional, Dict, List, Any, Tuple
@@ -583,6 +585,184 @@ class CNNEngine:
             df['Radius_prev'] = 0.0
 
         return df
+
+    def _haversine_km(self, lon1, lat1, lon2, lat2):
+        """Return distance in kilometers between two (lon,lat)."""
+        # handle missing
+        try:
+            lon1, lat1, lon2, lat2 = map(float, (lon1, lat1, lon2, lat2))
+        except Exception:
+            return None
+        R = 6371.0  # Earth radius km
+        dlon = radians(lon2 - lon1)
+        dlat = radians(lat2 - lat1)
+        a = sin(dlat/2)**2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon/2)**2
+        c = 2 * asin(sqrt(a))
+        return R * c
+
+    def _angle_diff(self, a, b):
+        """Smallest angular difference between a and b in degrees."""
+        # ensure floats
+        a = float(a) % 360.0
+        b = float(b) % 360.0
+        diff = abs((a - b + 180) % 360 - 180)
+        return diff
+
+    def validate_predictions_2025(
+        self,
+        df_main: pd.DataFrame = None,
+        pred_csv: str = None,
+        time_window_days: int = 30,
+        angle_threshold: float = 60.0,
+        distance_km_threshold: float = None,
+        out_csv: str = None
+    ) -> pd.DataFrame:
+        """
+        Validasi prediksi yang ada di CSV terhadap kejadian aktual tahun 2025.
+        - df_main: dataframe sumber event (harus mengandung kolom timestamp dan, bila tersedia, lat/lon)
+        - pred_csv: path ke CSV prediksi (fallback ke self.paths["cnn_prediction_out"])
+        - time_window_days: jangka waktu setelah basis_data_terakhir untuk mencari match
+        - angle_threshold: ambang selisih sudut (degrees) untuk dikatakan match
+        - distance_km_threshold: (optional) ambang jarak (km) antara pusat prediksi & actual
+        - out_csv: path untuk menyimpan hasil validasi (default ke cnn_results/validation_2025.csv)
+        Returns dataframe hasil validasi.
+        """
+        pred_csv = pred_csv or self.paths.get("cnn_prediction_out")
+        if pred_csv is None or not os.path.exists(pred_csv):
+            self.logger.error(f"Validation aborted: pred CSV not found at {pred_csv}")
+            return pd.DataFrame()
+
+        pred_df = pd.read_csv(pred_csv, encoding='utf-8-sig').fillna("")
+        # Ensure datetime parsing
+        if 'basis_data_terakhir' in pred_df.columns:
+            pred_df['basis_data_terakhir'] = pd.to_datetime(pred_df['basis_data_terakhir'], errors='coerce')
+        else:
+            pred_df['basis_data_terakhir'] = pd.to_datetime(pred_df.get('timestamp', pd.NaT), errors='coerce')
+
+        pred_df['pred_angle'] = pd.to_numeric(pred_df.get('arah_derajat', pred_df.get('angle', 0.0)), errors='coerce')
+        pred_df['prediction_id'] = pred_df.get('prediction_id', [str(uuid.uuid4()) for _ in range(len(pred_df))])
+
+        # Load main events if not provided
+        if df_main is None or df_main.empty:
+            df_main = self._load_lstm_bridge()
+        if df_main is None or df_main.empty:
+            self.logger.error("Validation aborted: no main event dataframe available.")
+            return pd.DataFrame()
+
+        # Normalize timestamp column
+        if 'timestamp' not in df_main.columns:
+            # try known alternatives
+            for alt in ['time', 'Tanggal']:
+                if alt in df_main.columns:
+                    df_main['timestamp'] = pd.to_datetime(df_main[alt], errors='coerce')
+                    break
+        else:
+            df_main['timestamp'] = pd.to_datetime(df_main['timestamp'], errors='coerce')
+
+        # Filter only 2025 events (atau > cutoff)
+        df_proc = self._inject_history_features(df_main)
+        cutoff = pd.Timestamp("2024-12-31 23:59:59")
+        test_df = df_proc[df_proc['timestamp'] > cutoff].copy()
+        if test_df.empty:
+            self.logger.info("No 2025 events found in provided data (test_df empty).")
+        # prepare lat/lon columns if available
+        lat_col = None
+        lon_col = None
+        for c in ['ACO_center_x','center_x','latitude','lat','x','Lintang']:
+            if c in df_proc.columns:
+                lat_col = c
+                break
+        for c in ['ACO_center_y','center_y','longitude','long','lon','y','Bujur']:
+            if c in df_proc.columns:
+                lon_col = c
+                break
+
+        results = []
+        for _, prow in pred_df.iterrows():
+            pid = prow.get('prediction_id', str(uuid.uuid4()))
+            base_date = prow.get('basis_data_terakhir', pd.NaT)
+            pred_angle = float(prow.get('pred_angle', 0.0) if not pd.isna(prow.get('pred_angle')) else 0.0)
+
+            # Candidate selection: events after basis_date up to window, fallback whole 2025
+            if not pd.isna(base_date):
+                start = base_date
+                end = base_date + pd.Timedelta(days=int(time_window_days))
+                candidates = test_df[(test_df['timestamp'] >= start) & (test_df['timestamp'] <= end)].copy()
+            else:
+                candidates = test_df.copy()
+
+            best = None
+            best_diff = 999.0
+            best_dist = None
+
+            # If no candidates in window, expand to whole 2025
+            if candidates.empty:
+                candidates = test_df.copy()
+
+            for _, act in candidates.iterrows():
+                actual_angle = float(act.get('Arah_Derajat', act.get('angle', 0.0)) or 0.0)
+                diff = self._angle_diff(pred_angle, actual_angle)
+                dist_km = None
+                if lat_col and lon_col:
+                    # get lon/lat of prediction (use basis row values if stored in pred CSV: check 'basis_lat' etc.)
+                    # Try to extract lat/lon from act row for distance
+                    try:
+                        # If pred CSV stored center coords, use them; otherwise we only compute dist between pred basis coords and actual coords is not possible.
+                        pred_lat = prow.get('ACO_center_x', prow.get('center_x', None))
+                        pred_lon = prow.get('ACO_center_y', prow.get('center_y', None))
+                        act_lat = act.get(lat_col)
+                        act_lon = act.get(lon_col)
+                        if pred_lat not in [None, "", "nan"] and pred_lon not in [None, "", "nan"]:
+                            dist_km = self._haversine_km(float(pred_lon), float(pred_lat), float(act_lon), float(act_lat))
+                        else:
+                            # If pred lat/lon not available, set dist None or compute 0
+                            dist_km = None
+                    except Exception:
+                        dist_km = None
+
+                if diff < best_diff:
+                    best_diff = diff
+                    best = act
+                    best_dist = dist_km
+
+            match_flag = False
+            if best is not None and best_diff <= float(angle_threshold):
+                if distance_km_threshold is None:
+                    match_flag = True
+                else:
+                    if best_dist is not None and best_dist <= float(distance_km_threshold):
+                        match_flag = True
+                    else:
+                        match_flag = False
+
+            result_row = {
+                "prediction_id": pid,
+                "pred_basis_date": base_date,
+                "pred_angle": pred_angle,
+                "best_match_timestamp": best.get('timestamp') if best is not None else pd.NaT,
+                "best_match_angle": float(best.get('Arah_Derajat', best.get('angle', float('nan')))) if best is not None else None,
+                "angle_diff_deg": float(best_diff) if best is not None else None,
+                "best_match_distance_km": float(best_dist) if best_dist is not None else None,
+                "match_flag": bool(match_flag),
+                "search_window_days": int(time_window_days),
+                "angle_threshold_deg": float(angle_threshold),
+                "distance_threshold_km": float(distance_km_threshold) if distance_km_threshold is not None else None
+            }
+            results.append(result_row)
+
+        valid_df = pd.DataFrame(results)
+
+        # save
+        if out_csv is None:
+            out_csv = os.path.join(os.path.dirname(self.paths.get("cnn_prediction_out",".")), "validation_2025.csv")
+        try:
+            os.makedirs(os.path.dirname(out_csv), exist_ok=True)
+            valid_df.to_csv(out_csv, index=False, encoding='utf-8-sig')
+            self.logger.info(f"Validation saved to {out_csv}")
+        except Exception as e:
+            self.logger.error(f"Failed to save validation CSV: {e}")
+
+        return valid_df
 
     # --------------------------------------------------------
     #  (VALIDASI & SPLIT TAHUN)
