@@ -608,6 +608,21 @@ class CNNEngine:
         diff = abs((a - b + 180) % 360 - 180)
         return diff
 
+    def _accuracy_from_angle(self, diff_angle, threshold=180.0):
+        """
+        Soft accuracy:
+        - 0°   = 100%
+        - 180° = 0%
+        """
+        try:
+            diff_angle = abs(float(diff_angle))
+        except:
+            return 0.0
+
+        diff_angle = min(diff_angle, 180.0)
+        acc = 1.0 - (diff_angle / 180.0)
+        return round(acc * 100.0, 2)
+
     def validate_predictions_2025(
         self,
         df_main: pd.DataFrame = None,
@@ -966,32 +981,37 @@ class CNNEngine:
                     status_validasi = "MENYIMPANG"
                     validation_note = f"Tidak ada match. Selisih terdekat {best_diff:.1f}°."
                     diff_angle = best_diff
-
-
+            
+            accuracy_percent = self._accuracy_from_angle(
+            diff_angle,
+            threshold=threshold
+        )
             # --- PENYIMPANAN DATA (FIX KEYERROR: KEMBALIKAN NAMA KOLOM LAMA) ---
             if out_path:
                 try:
                     os.makedirs(os.path.dirname(out_path), exist_ok=True)
                     
-                    # [PENTING] Menggunakan nama kolom yang SAMA PERSIS dengan Dashboard lama
+        
+
                     new_data = {
-                        "timestamp": pd.Timestamp.now(),
-                        "arah_prediksi": pred_arah,
-                        "arah_derajat": pred_sudut,
-                        "risk_k_array": str(risk_array.tolist()),
-                        "confidence_scalar": confidence,
-                        "sumber": "SimpleCNN_SmartBackfill",
+                    "timestamp": pd.Timestamp.now(),
+                    "arah_prediksi": pred_arah,
+                    "arah_derajat": pred_sudut,
+                    "risk_k_array": str(risk_array.tolist()),
+                    "confidence_scalar": confidence,
 
-                        # Metadata lama
-                        "basis_data_terakhir": row_data.get('timestamp', pd.Timestamp.now()),
-                        "validasi_note": validation_note,
-                        "selisih_sudut": diff_angle,
-                        "status_validasi": status_validasi,
+                    # ✅ SINGLE SOURCE OF TRUTH
+                    "akurasi_prediksi_persen": accuracy_percent,
 
-                        # === TAMBAHAN BARU (AMAN) ===
-                        "dir_inferred_from_angle": dir_by_angle,
-                        "consistency_flag": consistency_flag
-                    }
+                    "sumber": "SimpleCNN_SmartBackfill",
+                    "basis_data_terakhir": row_data.get('timestamp', pd.Timestamp.now()),
+                    "validasi_note": validation_note,
+                    "selisih_sudut": diff_angle,
+                    "status_validasi": status_validasi,
+                    "dir_inferred_from_angle": dir_by_angle,
+                    "consistency_flag": consistency_flag
+                }
+
                     output_df = pd.DataFrame([new_data])
                     
                     file_exists = os.path.exists(out_path)
