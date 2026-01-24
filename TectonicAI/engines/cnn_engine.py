@@ -11,7 +11,7 @@ import time
 import matplotlib.pyplot as plt
 import seaborn as sns
 import uuid
-from math import radians, sin, cos, asin, sqrt
+from math import radians, sin, cos, atan2, degrees
 
 # [FIX] Tambahkan Type Hinting yang diperlukan
 from typing import Optional, Dict, List, Any, Tuple
@@ -78,6 +78,17 @@ def dir_from_angle(angle_deg: float) -> str:
     else:
         return "Barat"
 
+def bearing_deg(lat1, lon1, lat2, lon2):
+    """
+    Menghitung bearing (azimuth) dari titik 1 ke titik 2 (0–360°)
+    """
+    lat1, lon1, lat2, lon2 = map(radians, [lat1, lon1, lat2, lon2])
+    dlon = lon2 - lon1
+
+    x = sin(dlon) * cos(lat2)
+    y = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dlon)
+
+    return (degrees(atan2(x, y)) + 360) % 360
 
 def extract_direction_and_angle(mask: np.ndarray) -> Tuple[float, float, float]:
     """
@@ -165,6 +176,13 @@ class TensorConstructor:
         cx_prev = float(row.get("ACO_center_x_prev", cx)) 
         cy_prev = float(row.get("ACO_center_y_prev", cy))
         rad_prev = float(row.get("Radius_prev", rad))
+
+        # NORMALISASI LAT/LON → 0–1
+        cx = (cx + 90.0) / 180.0
+        cy = (cy + 180.0) / 360.0
+
+        cx_prev = (cx_prev + 90.0) / 180.0
+        cy_prev = (cy_prev + 180.0) / 360.0
 
         # --- LSTM OUTPUT ---
         lstm_val = float(row.get("LSTM_pred", 0.0))
@@ -522,69 +540,140 @@ class CNNEngine:
 
     # --------------------------------------------------------
     def _inject_history_features(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Helper internal untuk membuat fitur H-1 (Lagging) secara otomatis"""
+        """
+        Helper internal untuk membuat fitur H-1 (Lagging) secara otomatis.
+        FIX:
+        - Support angka dengan koma (Indonesia / Excel)
+        - Mencegah input CNN = nol semua
+        - Aman untuk data historis & 2025
+        """
         if df.empty:
             return df
-            
+
         df = df.copy()
-        
-        # 1. Pastikan urut waktu
+
+        # ===============================
+        # UTIL: SAFE FLOAT (KOMA → TITIK)
+        # ===============================
+        def _safe_float(val, default=0.0):
+            try:
+                if isinstance(val, str):
+                    val = val.replace(",", ".")
+                return float(val)
+            except Exception:
+                return default
+
+        # ===============================
+        # 1. NORMALISASI & SORT TIMESTAMP
+        # ===============================
         if 'timestamp' in df.columns:
             df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
-            df = df.sort_values('timestamp').reset_index(drop=True)
-        elif 'time' in df.columns: 
+        elif 'time' in df.columns:
             df['timestamp'] = pd.to_datetime(df['time'], errors='coerce')
-            df = df.sort_values('timestamp').reset_index(drop=True)
-        elif 'Tanggal' in df.columns: # Support kolom 'Tanggal' (Indonesian)
+        elif 'Tanggal' in df.columns:  # Support Bahasa Indonesia
             df['timestamp'] = pd.to_datetime(df['Tanggal'], errors='coerce')
+
+        if 'timestamp' in df.columns:
             df = df.sort_values('timestamp').reset_index(drop=True)
-            
-        # 2. DETEKSI KOLOM SUMBER (UPDATE: SUPPORT BAHASA INDONESIA)
+
+        # ===============================
+        # 2. DETEKSI KOLOM SUMBER
+        # ===============================
         cols = df.columns.tolist()
-        
-        # Cari kolom Latitude/X (Menambahkan 'Lintang')
+
+        # Latitude / X
         col_x = None
-        # Urutan prioritas: Nama standar -> Inggris -> Indonesia -> Singkatan
-        for candidate in ['ACO_center_x', 'center_x', 'latitude', 'lat', 'x', 'Lintang']:
+        for candidate in [
+            'ACO_center_x', 'center_x',
+            'latitude', 'lat', 'x',
+            'Lintang'
+        ]:
             if candidate in cols:
                 col_x = candidate
                 break
-                
-        # Cari kolom Longitude/Y (Menambahkan 'Bujur')
+
+        # Longitude / Y
         col_y = None
-        for candidate in ['ACO_center_y', 'center_y', 'longitude', 'long', 'lon', 'y', 'Bujur']:
+        for candidate in [
+            'ACO_center_y', 'center_y',
+            'longitude', 'long', 'lon', 'y',
+            'Bujur'
+        ]:
             if candidate in cols:
                 col_y = candidate
                 break
-                
-        # Cari kolom Radius
+
+        # Radius
         col_r = None
-        for candidate in ['Context_Impact_Radius', 'radius_km', 'radius', 'R_true', 'impact_radius']:
+        for candidate in [
+            'Context_Impact_Radius',
+            'radius_km', 'radius',
+            'R_true', 'impact_radius'
+        ]:
             if candidate in cols:
                 col_r = candidate
                 break
-        
-        # 3. Buat kolom H-1 (Prev) jika kolom sumber ditemukan
+
+        # ===============================
+        # 3. STANDARISASI & LAGGING (H-1)
+        # ===============================
         if col_x and col_y and col_r:
-            self.logger.info(f"CNN DEBUG: Mapping kolom ditemukan -> X: {col_x}, Y: {col_y}, R: {col_r}")
-            
-            # Kita STANDARISASI nama kolom ke internal engine agar konsisten
-            df['ACO_center_x'] = df[col_x]
-            df['ACO_center_y'] = df[col_y]
-            df['Context_Impact_Radius'] = df[col_r]
-            
-            # Shift data untuk H-1
-            df['ACO_center_x_prev'] = df['ACO_center_x'].shift(1).fillna(df['ACO_center_x'])
-            df['ACO_center_y_prev'] = df['ACO_center_y'].shift(1).fillna(df['ACO_center_y'])
-            df['Radius_prev']       = df['Context_Impact_Radius'].shift(1).fillna(df['Context_Impact_Radius'])
+            self.logger.info(
+                f"CNN DEBUG: Mapping kolom -> X:{col_x}, Y:{col_y}, R:{col_r}"
+            )
+
+            # 🔧 FIX UTAMA: konversi aman ke float
+            df['ACO_center_x'] = df[col_x].apply(_safe_float)
+            df['ACO_center_y'] = df[col_y].apply(_safe_float)
+            df['Context_Impact_Radius'] = df[col_r].apply(_safe_float)
+
+            # H-1 (lagging)
+            df['ACO_center_x_prev'] = (
+                df['ACO_center_x'].shift(1).fillna(df['ACO_center_x'])
+            )
+            df['ACO_center_y_prev'] = (
+                df['ACO_center_y'].shift(1).fillna(df['ACO_center_y'])
+            )
+            df['Radius_prev'] = (
+                df['Context_Impact_Radius']
+                .shift(1)
+                .fillna(df['Context_Impact_Radius'])
+            )
+            # ===============================
+            # 4. HITUNG ARAH AKTUAL (DERIVED)
+            # ===============================
+            try:
+                df["Arah_Derajat"] = df.apply(
+                    lambda r: bearing_deg(
+                        r["ACO_center_x_prev"],
+                        r["ACO_center_y_prev"],
+                        r["ACO_center_x"],
+                        r["ACO_center_y"]
+                    )
+                    if not pd.isna(r["ACO_center_x_prev"]) and not pd.isna(r["ACO_center_y_prev"])
+                    else np.nan,
+                    axis=1
+                )
+            except Exception as e:
+                self.logger.warning(f"Gagal menghitung Arah_Derajat: {e}")
+                df["Arah_Derajat"] = np.nan
+
         else:
-            # Jika masuk sini, artinya nama kolom masih belum match
-            self.logger.warning(f"KOLOM HILANG: Tidak bisa menemukan lat/lon/radius di {cols}. Menggunakan default.")
+            # Fallback aman (tidak crash)
+            self.logger.warning(
+                f"KOLOM HILANG: lat/lon/radius tidak ditemukan di {cols}. "
+                f"Menggunakan default aman."
+            )
+            df['ACO_center_x'] = 0.5
+            df['ACO_center_y'] = 0.5
+            df['Context_Impact_Radius'] = 0.0
+
             df['ACO_center_x_prev'] = 0.5
             df['ACO_center_y_prev'] = 0.5
             df['Radius_prev'] = 0.0
 
         return df
+
 
     def _haversine_km(self, lon1, lat1, lon2, lat2):
         """Return distance in kilometers between two (lon,lat)."""
@@ -950,18 +1039,63 @@ class CNNEngine:
             # =====================================================
             threshold = 60.0
             found = False
-            best_diff = 999.0
+            best_diff = None
             best_row = None
+            closest_candidates = []  
+
 
             if not test_df.empty:
-                for _, actual_event in test_df.head(10).iterrows():
-                    actual_sudut = float(
-                        actual_event.get("Arah_Derajat", actual_event.get("angle", 0.0))
-                    ) % 360.0
 
-                    diff = abs((pred_sudut - actual_sudut + 180) % 360 - 180)
+                # ===============================
+                # WINDOW-BASED SAMPLING (FIX)
+                # ===============================
+                window_days = 30
+                base_time = row_data.get("timestamp")
 
-                    if diff < best_diff:
+                if "timestamp" in test_df.columns and base_time is not None:
+                    candidates_df = test_df[
+                        (test_df["timestamp"] >= base_time) &
+                        (test_df["timestamp"] <= base_time + pd.Timedelta(days=window_days))
+                    ]
+                else:
+                    candidates_df = test_df.copy()
+
+                # fallback jika kosong
+                if candidates_df.empty:
+                    candidates_df = test_df.copy()
+
+                # ===============================
+                # SAFETY GUARD: KOLUM ARAH
+                # ===============================
+                if "Arah_Derajat" not in candidates_df.columns:
+                    self.logger.warning(
+                        "VALIDATION WARNING: Kolom Arah_Derajat tidak ditemukan. "
+                        "Validasi arah tidak bermakna."
+                    )
+                    status_validasi = "DATA_ARAH_TIDAK_TERSEDIA"
+                    diff_angle = 180.0
+                    validation_note = "Arah aktual tidak tersedia, validasi dilewati."
+
+                for _, actual_event in candidates_df.iterrows():
+
+                    try:
+                        actual_sudut = float(
+                            actual_event.get("Arah_Derajat", actual_event.get("angle", 0.0))
+                        )
+                    except Exception:
+                        continue  # skip jika data lat/lon tidak valid
+
+
+                    diff = self._angle_diff(pred_sudut, actual_sudut)
+
+                    # SIMPAN SEMUA KANDIDAT
+                    closest_candidates.append({
+                        "timestamp": actual_event.get("timestamp"),
+                        "angle": actual_sudut,
+                        "diff": diff
+                    })
+
+                    if best_diff is None or diff < best_diff:
                         best_diff = diff
                         best_row = actual_event
 
@@ -969,53 +1103,132 @@ class CNNEngine:
                         found = True
                         break
 
-                if found:
-                    status_validasi = "RELEVAN"
+                # ===============================
+                # AMBIL TOP-K CLOSEST SAMPLING
+                # ===============================
+                TOP_K = 2  # "sampling satu lagi"
+                closest_candidates = sorted(
+                    closest_candidates,
+                    key=lambda x: x["diff"]
+                )[:TOP_K]
+
+                # ===============================
+                # SAFETY NET: DATA KOSONG
+                # ===============================
+                if best_diff is None:
+                    best_diff = 180.0  # worst-case angular uncertainty
+
+                diff_angle = best_diff  # SINGLE SOURCE OF TRUTH
+
+                if best_row is None:
+                    status_validasi = "DATA_TIDAK_CUKUP"
+                    diff_angle = 180.0
                     validation_note = (
-                        f"Match ditemukan. Prediksi {pred_arah} ({pred_sudut:.1f}°), "
-                        f"Aktual ({best_row.get('Arah_Derajat', best_row.get('angle',0.0)):.1f}°). "
-                        f"Selisih {best_diff:.1f}°."
+                        "Data aktual tidak cukup dalam window waktu "
+                        "untuk melakukan validasi prediksi."
                     )
-                    diff_angle = best_diff
+
                 else:
-                    status_validasi = "MENYIMPANG"
-                    validation_note = f"Tidak ada match. Selisih terdekat {best_diff:.1f}°."
-                    diff_angle = best_diff
+                    # ===============================
+                    # STATUS VALIDASI (SOFT & ILMIAH)
+                    # ===============================
+                    if best_diff <= threshold:
+                        status_validasi = "RELEVAN"
+                        validation_note = (
+                            f"Match ditemukan. Prediksi {pred_arah} ({pred_sudut:.1f}°), "
+                            f"Aktual ({best_row.get('Arah_Derajat', best_row.get('angle',0.0)):.1f}°). "
+                            f"Selisih {best_diff:.1f}°."
+                        )
+
+                    elif best_diff <= threshold * 1.5:
+                        status_validasi = "MENDEKATI"
+
+                        if closest_candidates:
+                            alt = closest_candidates[0]
+                            validation_note = (
+                                f"Prediksi mendekati kejadian aktual. "
+                                f"Selisih {best_diff:.1f}°. "
+                                f"Alternatif sampling {alt['angle']:.1f}° "
+                                f"(selisih {alt['diff']:.1f}°)."
+                            )
+                        else:
+                            validation_note = (
+                                f"Prediksi mendekati kejadian aktual. "
+                                f"Selisih {best_diff:.1f}°."
+                            )
+
+                    else:
+                        status_validasi = "MENYIMPANG"
+
+                        if closest_candidates:
+                            alt = closest_candidates[0]
+                            validation_note = (
+                                f"Tidak ada match dalam threshold. "
+                                f"Selisih terdekat {best_diff:.1f}°. "
+                                f"Alternatif sampling {alt['angle']:.1f}° "
+                                f"(selisih {alt['diff']:.1f}°)."
+                            )
+                        else:
+                            validation_note = f"Tidak ada match. Selisih terdekat {best_diff:.1f}°."
+
             
             accuracy_percent = self._accuracy_from_angle(
-            diff_angle,
-            threshold=threshold
-        )
+                diff_angle,
+                threshold=threshold
+            )
             # --- PENYIMPANAN DATA (FIX KEYERROR: KEMBALIKAN NAMA KOLOM LAMA) ---
             if out_path:
                 try:
                     os.makedirs(os.path.dirname(out_path), exist_ok=True)
-                    
-        
 
                     new_data = {
-                    "timestamp": pd.Timestamp.now(),
-                    "arah_prediksi": pred_arah,
-                    "arah_derajat": pred_sudut,
-                    "risk_k_array": str(risk_array.tolist()),
-                    "confidence_scalar": confidence,
+                        "timestamp": pd.Timestamp.now(),
+                        "arah_prediksi": pred_arah,
+                        "arah_derajat": pred_sudut,
+                        "risk_k_array": str(risk_array.tolist()),
+                        "confidence_scalar": confidence,
 
-                    # ✅ SINGLE SOURCE OF TRUTH
-                    "akurasi_prediksi_persen": accuracy_percent,
+                        # ✅ SINGLE SOURCE OF TRUTH
+                        "akurasi_prediksi_persen": accuracy_percent,
 
-                    "sumber": "SimpleCNN_SmartBackfill",
-                    "basis_data_terakhir": row_data.get('timestamp', pd.Timestamp.now()),
-                    "validasi_note": validation_note,
-                    "selisih_sudut": diff_angle,
-                    "status_validasi": status_validasi,
-                    "dir_inferred_from_angle": dir_by_angle,
-                    "consistency_flag": consistency_flag
-                }
+                        "sumber": "SimpleCNN_SmartBackfill",
+                        "basis_data_terakhir": row_data.get('timestamp', pd.Timestamp.now()),
+                        "validasi_note": validation_note,
+                        "selisih_sudut": diff_angle,
+                        "status_validasi": status_validasi,
+                        "dir_inferred_from_angle": dir_by_angle,
+                        "consistency_flag": consistency_flag
+                    }
+
+                    # ===============================
+                    # TAMBAHAN: SAMPLING ALTERNATIF
+                    # ===============================
+                    new_data.update({
+                        "alt_sampling_1_angle": (
+                            closest_candidates[0]["angle"]
+                            if isinstance(closest_candidates, list) and len(closest_candidates) > 0
+                            else None
+                        ),
+                        "alt_sampling_1_diff": (
+                            closest_candidates[0]["diff"]
+                            if isinstance(closest_candidates, list) and len(closest_candidates) > 0
+                            else None
+                        ),
+                        "alt_sampling_2_angle": (
+                            closest_candidates[1]["angle"]
+                            if isinstance(closest_candidates, list) and len(closest_candidates) > 1
+                            else None
+                        ),
+                        "alt_sampling_2_diff": (
+                            closest_candidates[1]["diff"]
+                            if isinstance(closest_candidates, list) and len(closest_candidates) > 1
+                            else None
+                        ),
+                    })
 
                     output_df = pd.DataFrame([new_data])
-                    
+
                     file_exists = os.path.exists(out_path)
-                    # Mode append, header hanya jika file belum ada
                     output_df.to_csv(
                         out_path,
                         mode='a',
@@ -1023,8 +1236,11 @@ class CNNEngine:
                         index=False,
                         encoding='utf-8-sig'
                     )
+
                 except PermissionError:
-                    self.logger.error(f"GAGAL SIMPAN CSV: File {out_path} sedang dibuka! Tutup file Excelnya.")
+                    self.logger.error(
+                        f"GAGAL SIMPAN CSV: File {out_path} sedang dibuka! Tutup file Excelnya."
+                    )
                 except Exception as e:
                     self.logger.error(f"Error saving CSV: {e}")
 
