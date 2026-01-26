@@ -512,6 +512,23 @@ class CNNEngine:
         self.viz = VisualizationPipeline(self.paths, self.logger) 
         self.model = None
 
+
+    def _report_value(self, val, label="DATA_TIDAK_ADA"):
+        """
+        Helper untuk kebutuhan laporan:
+        - Jika None / NaN → tampilkan label teks
+        - Jika ada nilai → tampilkan nilai asli
+        """
+        if val is None:
+            return label
+        try:
+            if isinstance(val, float) and np.isnan(val):
+                return label
+        except Exception:
+            pass
+        return val
+
+
     # --------------------------------------------------------
     def _load_lstm_bridge(self):
         if not self.paths:
@@ -1204,26 +1221,26 @@ class CNNEngine:
                     # TAMBAHAN: SAMPLING ALTERNATIF
                     # ===============================
                     new_data.update({
-                        "alt_sampling_1_angle": (
+                        "alt_sampling_1_angle": self._report_value(
                             closest_candidates[0]["angle"]
                             if isinstance(closest_candidates, list) and len(closest_candidates) > 0
                             else None
                         ),
-                        "alt_sampling_1_diff": (
+                        "alt_sampling_1_diff": self._report_value(
                             closest_candidates[0]["diff"]
                             if isinstance(closest_candidates, list) and len(closest_candidates) > 0
                             else None
                         ),
-                        "alt_sampling_2_angle": (
+                        "alt_sampling_2_angle": self._report_value(
                             closest_candidates[1]["angle"]
                             if isinstance(closest_candidates, list) and len(closest_candidates) > 1
                             else None
                         ),
-                        "alt_sampling_2_diff": (
+                        "alt_sampling_2_diff": self._report_value(
                             closest_candidates[1]["diff"]
                             if isinstance(closest_candidates, list) and len(closest_candidates) > 1
                             else None
-                        ),
+                        ), 
                     })
 
                     output_df = pd.DataFrame([new_data])
