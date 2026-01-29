@@ -27,6 +27,7 @@ try:
     from TectonicAI.engines.aco_engine import ACOEngine                # Ant Colony Optimization (zonasi risiko)
     from TectonicAI.engines.ga_engine import GAEngine                  # Genetic Algorithm (jalur & stres spasial)
     from TectonicAI.engines.lstm_engine import LSTMEngine              # Model temporal anomaly detection
+    from TectonicAI.engines.direction_deviation_lstm_engine import (DirectionDeviationLSTMEngine)
     from TectonicAI.engines.cnn_engine import CNNEngine                # Model spasial grid-based (impact map)
     from TectonicAI.engines.evaluation_engine import EvaluationEngine  # Final fusion & probability evaluator
 except ImportError as e:
@@ -306,6 +307,36 @@ class TectonicOrchestrator:
             for col in ["Temporal_Risk_Factor", "Model_Uncertainty", "is_Anomaly"]:
                 if col not in df_dynamic.columns:
                     df_dynamic[col] = 0.0 if col != "is_Anomaly" else False
+
+        # --- C2. Direction Deviation LSTM (Arah & Sudut Deviasi) ---
+        try:
+            dir_lstm_cfg = self.config.get("direction_lstm_model", {})
+            dir_lstm = DirectionDeviationLSTMEngine(dir_lstm_cfg)
+
+            if isinstance(train_idx, np.ndarray) and train_idx.size > 0:
+                train_context = df_dynamic.loc[train_idx]
+            else:
+                train_context = pd.DataFrame()
+
+            df_dynamic, dir_meta = dir_lstm.run(df_dynamic, train_context)
+
+            summary["direction_lstm_meta"] = dir_meta
+            self.logger.info("[ORCH] Direction Deviation LSTM finished.")
+
+        except Exception as e:
+            self.logger.error(f"[ORCH] Direction LSTM Error: {e}")
+
+            # FAILSAFE KOLOM
+            fallback_cols = [
+                "Arah_Prediksi",
+                "Sudut_Deviasi",
+                "Confidence_Arah",
+                "Status_Arah"
+            ]
+            for col in fallback_cols:
+                if col not in df_dynamic.columns:
+                    df_dynamic[col] = np.nan
+
 
         # --- D. CNN (Spatial Analysis) ---
         try:

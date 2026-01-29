@@ -17,6 +17,11 @@ from TectonicAI import orchestrator        # Import modul orchestrator sebagai p
 from TectonicAI.reporting.live_monitor_generator import generate_live_monitor        # Fungsi pembuat dashboard realtime (1 data terbaru)
 from TectonicAI.reporting.historical_analyzer import generate_historical_dashboard    # Fungsi pembuat dashboard historis (semua data)
 
+from TectonicAI.engines.direction_deviation_lstm_engine import (
+    DirectionDeviationLSTMEngine
+)
+
+
 # ----------------------------------------------------------
 # LOGGER
 # ----------------------------------------------------------
@@ -108,8 +113,49 @@ def run_cycle_wrapper():
         except Exception as e:
             logger.error(f"Gagal membuat Dashboard Historis: {e}")
     
-    return df_live
+    
+    # ============================================================
+    # CLIENT DIRECTION DEVIATION LSTM (EXPORT ONLY)
+    # ============================================================
+    #try:
+        df_client = df_dynamic_full
+        logger.info(f"[CLIENT LSTM] Kolom df_client: {list(df_client.columns)}")
+        logger.info(f"[CLIENT LSTM] Jumlah baris: {len(df_client)}")
+        logger.info(f"[CLIENT LSTM] Tahun unik: {df_client['waktu'].dt.year.unique()}")
+        if df_client is not None and not df_client.empty:
 
+            # Pastikan kolom waktu dalam datetime
+            if "waktu" not in df_client.columns and "Tanggal" in df_client.columns:
+                df_client = df_client.rename(columns={"Tanggal": "waktu"})
+            df_client["waktu"] = pd.to_datetime(df_client["waktu"], errors="coerce")
+
+            direction_engine = DirectionDeviationLSTMEngine(
+                seq_len=2,
+                angle_threshold=30.0,
+                dir_threshold=2.0,
+                model_path="models/direction_deviation_lstm.keras"
+            )
+
+            # TRAIN hanya dari data <= 2024
+            df_train_client = df_client[df_client["waktu"].dt.year <= 2024]
+            if not df_train_client.empty:
+                direction_engine.train(df_train_client)
+
+            # EXPORT client
+            os.makedirs("output", exist_ok=True)
+            direction_engine.predict_and_export(
+                df=df_client,
+                out_old="output/client_lstm_2022_2024.xlsx",
+                out_new="output/client_lstm_2025.xlsx"
+            )
+
+            logger.info("[CLIENT LSTM] Excel client berhasil dibuat.")
+
+    #except Exception as e:
+    #    logger.error(f"[CLIENT LSTM] Gagal generate Excel client: {e}")
+
+    
+    return df_live
 
 # ----------------------------------------------------------
 # 6. REALTIME LOOP (DAEMON)
