@@ -28,9 +28,14 @@ try:
 except ImportError:
     HAS_TF = False
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OUTPUT_DIR = os.path.join(BASE_DIR, "output", "direction_lstm_results")
+PROJECT_ROOT = os.path.dirname(
+    os.path.dirname(
+        os.path.dirname(os.path.abspath(__file__))
+    )
+)
+OUTPUT_DIR = os.path.join(PROJECT_ROOT, "output")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+
 
 CSV_PATH = os.path.join(
     OUTPUT_DIR,
@@ -43,7 +48,7 @@ CSV_PATH = os.path.join(
 # ============================================================
 
 def circular_angle_diff(a: float, b: float) -> float:
-    """Selisih sudut aman (0 - 180 derajat)."""
+    """Selisih sudut aman (0 sampai 180 derajat)."""
     diff = abs(a - b) % 360
     return min(diff, 360 - diff)
 
@@ -117,6 +122,7 @@ class DirectionDeviationLSTMEngine:
         - CNN_arah, CNN_sudut
         - ACO_lat, ACO_lon, ACO_area
         """
+        df = df.reset_index(drop=True)
         # === [ANTI-CRASH CHECK] ===
         required_cols = [
             'GA_arah', 'GA_sudut',
@@ -202,6 +208,8 @@ class DirectionDeviationLSTMEngine:
         out_old: str,
         out_new: str
     ):
+        df = df.reset_index(drop=True)
+
         if not HAS_TF:
             raise RuntimeError('TensorFlow tidak tersedia')
 
@@ -232,7 +240,12 @@ class DirectionDeviationLSTMEngine:
             'GA_sudut',
             'anomali'
         ]
+        # === [ANTI-KEYERROR GUARD] ===
+        for c in export_cols:
+            if c not in df_out.columns:
+                df_out[c] = np.nan
 
+        df_out['Tanggal'] = pd.to_datetime(df_out['Tanggal'], errors='coerce')
         df_old = df_out[df_out['Tanggal'].dt.year <= 2024][export_cols]
         df_new = df_out[df_out['Tanggal'].dt.year == 2025][export_cols]
 
@@ -267,8 +280,23 @@ class DirectionDeviationLSTMEngine:
         feat_df = self._build_features(df_dynamic)
 
         if len(feat_df) < self.seq_len:
+            df_dynamic = df_dynamic.copy()
             df_dynamic["direction_anomaly"] = False
+
+            export_cols = [
+                "Tanggal",
+                "GA_arah",
+                "GA_sudut",
+                "CNN_arah",
+                "CNN_sudut",
+                "direction_anomaly"
+            ]
+
+            export_df = df_dynamic.reindex(columns=export_cols)
+            export_df.to_csv(CSV_PATH, index=False)
+
             meta["status"] = "insufficient_data"
+            meta["export_path"] = CSV_PATH
             return df_dynamic, meta
 
         X = []
@@ -282,10 +310,13 @@ class DirectionDeviationLSTMEngine:
         df_dynamic = df_dynamic.copy()
         df_dynamic["direction_anomaly"] = False
         start_idx = 1 + (self.seq_len - 1)
-        df_dynamic.iloc[
-            start_idx : start_idx + len(preds),
-            df_dynamic.columns.get_loc("direction_anomaly")
-        ] = preds
+        valid_len = min(len(preds), len(df_dynamic) - start_idx)
+
+        df_dynamic.loc[
+            df_dynamic.index[start_idx : start_idx + valid_len],
+            "direction_anomaly"
+        ] = preds[:valid_len]
+
 
 
         export_cols = [

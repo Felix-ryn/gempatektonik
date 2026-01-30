@@ -311,7 +311,15 @@ class TectonicOrchestrator:
         # --- C2. Direction Deviation LSTM (Arah & Sudut Deviasi) ---
         try:
             dir_lstm_cfg = self.config.get("direction_lstm_model", {})
-            dir_lstm = DirectionDeviationLSTMEngine(dir_lstm_cfg)
+            dir_lstm = DirectionDeviationLSTMEngine(
+                seq_len=dir_lstm_cfg.get("seq_len", 2),
+                angle_threshold=dir_lstm_cfg.get("angle_threshold", 30.0),
+                dir_threshold=dir_lstm_cfg.get("dir_threshold", 2.0),
+                model_path=dir_lstm_cfg.get(
+                    "model_path",
+                    "direction_deviation_lstm.keras"
+                )
+            )
 
             if isinstance(train_idx, np.ndarray) and train_idx.size > 0:
                 train_context = df_dynamic.loc[train_idx]
