@@ -27,13 +27,11 @@ try:
     from TectonicAI.engines.aco_engine import ACOEngine                # Ant Colony Optimization (zonasi risiko)
     from TectonicAI.engines.ga_engine import GAEngine                  # Genetic Algorithm (jalur & stres spasial)
     from TectonicAI.engines.lstm_engine import LSTMEngine              # Model temporal anomaly detection
-    from TectonicAI.engines.direction_deviation_lstm_engine import (DirectionDeviationLSTMEngine)
+    from TectonicAI.engines.direction_deviation_lstm_engine import DirectionDeviationLSTMEngine
     from TectonicAI.engines.cnn_engine import CNNEngine                # Model spasial grid-based (impact map)
     from TectonicAI.engines.evaluation_engine import EvaluationEngine  # Final fusion & probability evaluator
 except ImportError as e:
     print(f"[CRITICAL ERROR] Engine import gagal: {e}")
-    # Placeholder classes jika modul belum ada saat testing isolasi
-    print(f"[CRITICAL ERROR] Import Modules Gagal: {e}")
     # Menggunakan placeholder CONFIG jika import gagal
     CONFIG = {"paths": {"live_history_data": "data/Tectonic_Earthquake_live_history.csv", 
                         "static_baseline_data": "data/Tectonic_Earthquake_data.csv",
@@ -292,8 +290,13 @@ class TectonicOrchestrator:
             lstm_path = self.config.get("lstm_anomaly_model", {})
             lstm = LSTMEngine(lstm_path)
 
+            # [FIX 1] Validasi Index untuk LSTM Pertama
             if isinstance(train_idx, np.ndarray) and train_idx.size > 0:
-                train_context = df_dynamic.loc[train_idx]
+                valid_train_idx = np.intersect1d(train_idx, df_dynamic.index)
+                if valid_train_idx.size > 0:
+                    train_context = df_dynamic.loc[valid_train_idx]
+                else:
+                    train_context = pd.DataFrame()
             else:
                 train_context = pd.DataFrame()
 
@@ -321,8 +324,16 @@ class TectonicOrchestrator:
                 )
             )
 
+            # [FIX 2] Validasi Index AMAN untuk Direction LSTM (Anti-Crash)
+            # Ini akan mencegah error "not in index" jika df_dynamic menyusut
             if isinstance(train_idx, np.ndarray) and train_idx.size > 0:
-                train_context = df_dynamic.loc[train_idx]
+                # Hanya ambil index yang MASIH ADA di df_dynamic sekarang
+                valid_train_idx = np.intersect1d(train_idx, df_dynamic.index)
+                
+                if valid_train_idx.size > 0:
+                    train_context = df_dynamic.loc[valid_train_idx]
+                else:
+                    train_context = pd.DataFrame()
             else:
                 train_context = pd.DataFrame()
 
@@ -350,7 +361,11 @@ class TectonicOrchestrator:
         try:
             cnn_path = self.config.get("cnn_hybrid_model", {})
             cnn = CNNEngine(cnn_path)
-            df_dynamic = cnn.train_and_predict(df_dynamic, train_idx, test_idx)
+            # Update index agar sesuai dengan data yang mungkin sudah berubah ukurannya
+            current_train_idx = np.intersect1d(train_idx, df_dynamic.index)
+            current_test_idx = np.intersect1d(test_idx, df_dynamic.index)
+            
+            df_dynamic = cnn.train_and_predict(df_dynamic, current_train_idx, current_test_idx)
             self.logger.info("[ORCH] CNN finished.")
         except Exception as e:
             self.logger.error(f"[ORCH] CNN Error: {e}")
@@ -359,7 +374,11 @@ class TectonicOrchestrator:
         # --- E. Evaluation (Final Ensembling) ---
         try:
             evaluator = EvaluationEngine(self.config)
-            df_dynamic = evaluator.run(df_dynamic, train_idx, test_idx)
+            # Update index lagi
+            current_train_idx = np.intersect1d(train_idx, df_dynamic.index)
+            current_test_idx = np.intersect1d(test_idx, df_dynamic.index)
+            
+            df_dynamic = evaluator.run(df_dynamic, current_train_idx, current_test_idx)
             self.logger.info("[ORCH] Evaluation & Probability Fusion finished.")
         except Exception as e:
             self.logger.critical(f"[ORCH] Evaluation Engine Error: {e}")

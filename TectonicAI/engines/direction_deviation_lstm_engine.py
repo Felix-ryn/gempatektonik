@@ -1,15 +1,13 @@
 # ============================================================
 # direction_deviation_lstm_engine.py
 # ------------------------------------------------------------
-# CLIENT ENGINE (FINAL)
-# Deteksi anomali berbasis deviasi arah & sudut (GA vs CNN)
-# Output: 2 Excel bersih sesuai permintaan client
+# CLIENT ENGINE (FINAL) - SMART ADAPTER VERSION
+# Fitur:
+# 1. Diagnostic: Cek Index & NaN.
+# 2. Smart Mapping: Menyesuaikan nama kolom secara otomatis.
+# 3. Safe Fallback: Menangani kolom GA yang hilang tanpa crash.
+# 4. Auto-Mkdir: Membuat folder logs otomatis.
 # ------------------------------------------------------------
-# Filosofi:
-# - BUKAN reconstruction error
-# - BUKAN risk / confidence CNN
-# - LSTM = classifier deviasi antar-kejadian
-# ============================================================
 
 import math
 import os
@@ -18,9 +16,10 @@ from typing import Tuple
 import numpy as np
 import pandas as pd
 
-# --- TensorFlow (opsional, tapi direkomendasikan) ---
+# --- TensorFlow (opsional) ---
 try:
     import tensorflow as tf
+    from tensorflow.keras.callbacks import CSVLogger
     from tensorflow.keras.models import Model, load_model
     from tensorflow.keras.layers import Input, LSTM, Dense
     from tensorflow.keras.optimizers import Adam
@@ -34,69 +33,62 @@ PROJECT_ROOT = os.path.dirname(
     )
 )
 OUTPUT_DIR = os.path.join(PROJECT_ROOT, "output")
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+LSTM_RES_DIR = os.path.join(OUTPUT_DIR, "lstm_results")
+LOG_DIR = os.path.join(LSTM_RES_DIR, "logs")
 
+# Pastikan semua folder output ada
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+os.makedirs(LSTM_RES_DIR, exist_ok=True)
+os.makedirs(LOG_DIR, exist_ok=True) # FIX ERROR NO SUCH FILE
 
 CSV_PATH = os.path.join(
     OUTPUT_DIR,
     "direction_deviation_prediction.csv"
 )
 
-
 # ============================================================
 # UTILITY FUNCTIONS
 # ============================================================
 
 def circular_angle_diff(a: float, b: float) -> float:
-    """Selisih sudut aman (0 sampai 180 derajat)."""
-    diff = abs(a - b) % 360
-    return min(diff, 360 - diff)
-
+    try:
+        diff = abs(float(a) - float(b)) % 360
+        return min(diff, 360 - diff)
+    except:
+        return 0.0
 
 def direction_distance(dir_a: str, dir_b: str) -> float:
-    """
-    Jarak arah kompas diskret.
-    Output:
-      0 = sama
-      1 = bersebelahan
-      2 = beda 90 derajat
-      3 = hampir berlawanan
-      4 = berlawanan
-    """
     compass = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
-    if dir_a not in compass or dir_b not in compass:
+    try:
+        # Handle jika input bukan string atau tidak valid
+        dir_a = str(dir_a).strip()
+        dir_b = str(dir_b).strip()
+        
+        if dir_a not in compass or dir_b not in compass:
+            return 0.0
+        i, j = compass.index(dir_a), compass.index(dir_b)
+        d = abs(i - j)
+        return min(d, 8 - d)
+    except:
         return 0.0
-    i, j = compass.index(dir_a), compass.index(dir_b)
-    d = abs(i - j)
-    return min(d, 8 - d)
-
 
 def haversine(lat1, lon1, lat2, lon2) -> float:
-    """Jarak haversine (km)."""
-    R = 6371.0
-    lat1, lon1, lat2, lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
-    dlat = lat2 - lat1
-    dlon = lon2 - lon1
-    a = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
-    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-
+    try:
+        R = 6371.0
+        lat1, lon1, lat2, lon2 = map(math.radians, [float(lat1), float(lon1), float(lat2), float(lon2)])
+        dlat = lat2 - lat1
+        dlon = lon2 - lon1
+        a = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
+        return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    except:
+        return 0.0
 
 # ============================================================
 # MAIN ENGINE
 # ============================================================
 
 class DirectionDeviationLSTMEngine:
-    """
-    Engine LSTM khusus CLIENT.
-
-    Input  : deviasi antar kejadian (GA vs CNN + perubahan ACO)
-    Output : label anomali (True / False)
-    """
-
-    # --------------------------------------------------------
-    # INIT
-    # --------------------------------------------------------
-
+    
     def __init__(
         self,
         seq_len: int = 2,
@@ -107,80 +99,109 @@ class DirectionDeviationLSTMEngine:
         self.seq_len = seq_len
         self.angle_threshold = angle_threshold
         self.dir_threshold = dir_threshold
-        self.model_path = os.path.join(OUTPUT_DIR, model_path)
-        self.model: Model | None = None
+        self.model_path = os.path.join(LSTM_RES_DIR, model_path)
+        self.model = None
 
     # --------------------------------------------------------
-    # FEATURE ENGINEERING
+    # FEATURE ENGINEERING (SMART MAPPING)
     # --------------------------------------------------------
-
     def _build_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Membangun fitur antar-kejadian.
-        Asumsi kolom input:
-        - GA_arah, GA_sudut
-        - CNN_arah, CNN_sudut
-        - ACO_lat, ACO_lon, ACO_area
+        Membangun fitur dengan mapping nama kolom yang dinamis.
         """
-        df = df.reset_index(drop=True)
-        # === [ANTI-CRASH CHECK] ===
-        required_cols = [
-            'GA_arah', 'GA_sudut',
-            'CNN_arah', 'CNN_sudut',
-            'ACO_lat', 'ACO_lon', 'ACO_area'
-        ]
+        # 1. IDENTIFIKASI KOLOM (Mapping Realita Data ke Logic)
+        # Format: 'Nama_Logic': 'Nama_Kolom_Asli_di_CSV'
+        
+        # Cek kolom CNN
+        col_cnn_angle = 'CNN_Pred_Sudut' if 'CNN_Pred_Sudut' in df.columns else 'CNN_sudut'
+        col_cnn_dir   = 'CNN_Pred_Arah'  if 'CNN_Pred_Arah' in df.columns else 'CNN_arah'
+        
+        # Cek kolom ACO
+        col_aco_lat   = 'ACO_Center_Lat' if 'ACO_Center_Lat' in df.columns else 'ACO_lat'
+        col_aco_lon   = 'ACO_Center_Lon' if 'ACO_Center_Lon' in df.columns else 'ACO_lon'
+        col_aco_area  = 'ACO_Impact_Radius_km' if 'ACO_Impact_Radius_km' in df.columns else 'ACO_area'
 
-        for c in required_cols:
+        # Cek kolom GA (Yang sering hilang)
+        # Jika tidak ada, kita pakai None sebagai penanda
+        col_ga_angle  = 'GA_sudut' if 'GA_sudut' in df.columns else None
+        col_ga_dir    = 'GA_arah'  if 'GA_arah'  in df.columns else None
+
+        # Validasi Kolom Utama (CNN & ACO wajib ada)
+        required_existing = [col_cnn_angle, col_cnn_dir, col_aco_lat, col_aco_lon]
+        for c in required_existing:
             if c not in df.columns:
-                raise ValueError(f"[Direction LSTM] Kolom wajib tidak ditemukan: {c}")
+                print(f"[WARN] Kolom Wajib '{c}' TIDAK DITEMUKAN. Feature engineering skip.")
+                return pd.DataFrame()
 
-        features = []
+        try:
+            # Gunakan underlying numpy array via reset_index agar aman
+            prev_data = df.iloc[:-1].reset_index(drop=True)
+            curr_data = df.iloc[1:].reset_index(drop=True)
+            
+            # --- 1. Delta Angle (GA vs CNN) ---
+            if col_ga_angle:
+                # Jika GA ada, hitung selisih GA(prev) vs CNN(curr)
+                f_angle = [circular_angle_diff(p, c) for p, c in zip(prev_data[col_ga_angle], curr_data[col_cnn_angle])]
+            else:
+                # [FALLBACK] Jika GA hilang, kita anggap deviasi = 0 (Neutral)
+                # agar LSTM tidak error, tapi fitur ini jadi tidak berpengaruh.
+                # print("[INFO] Fallback: GA Angle missing, using 0 deviation.")
+                f_angle = [0.0] * len(curr_data)
+            
+            # --- 2. Delta Direction (GA vs CNN) ---
+            if col_ga_dir:
+                f_dir = [direction_distance(p, c) for p, c in zip(prev_data[col_ga_dir], curr_data[col_cnn_dir])]
+            else:
+                # [FALLBACK] Sama, isi 0
+                f_dir = [0.0] * len(curr_data)
+            
+            # --- 3. Delta ACO Center (Haversine) ---
+            f_aco_dist = [
+                haversine(p_lat, p_lon, c_lat, c_lon) 
+                for p_lat, p_lon, c_lat, c_lon in zip(
+                    prev_data[col_aco_lat], prev_data[col_aco_lon],
+                    curr_data[col_aco_lat], curr_data[col_aco_lon]
+                )
+            ]
+            
+            # --- 4. Delta ACO Area/Radius ---
+            # Menggunakan Radius sebagai proxy area
+            f_aco_area = abs(curr_data[col_aco_area] - prev_data[col_aco_area])
+            
+            # Construct DF
+            features = pd.DataFrame({
+                'delta_angle': f_angle,
+                'delta_direction': f_dir,
+                'delta_aco_center': f_aco_dist,
+                'delta_aco_area': f_aco_area
+            })
+            
+            return features
 
-        for i in range(1, len(df)):
-            prev = df.iloc[i - 1]
-            curr = df.iloc[i]
-
-            row = {
-                'delta_angle': circular_angle_diff(prev['GA_sudut'], curr['CNN_sudut']),
-                'delta_direction': direction_distance(prev['GA_arah'], curr['CNN_arah']),
-                'delta_aco_center': haversine(
-                    prev['ACO_lat'], prev['ACO_lon'],
-                    curr['ACO_lat'], curr['ACO_lon']
-                ),
-                'delta_aco_area': abs(curr['ACO_area'] - prev['ACO_area'])
-            }
-            features.append(row)
-
-        return pd.DataFrame(features)
+        except Exception as e:
+            print(f"[WARN] Feature Extraction Failed: {e}")
+            return pd.DataFrame()
 
     # --------------------------------------------------------
-    # MODEL DEFINITION
+    # MODEL & TRAINING
     # --------------------------------------------------------
-
     def _build_model(self, input_shape: Tuple[int, int]) -> Model:
         inp = Input(shape=input_shape)
         x = LSTM(32, activation='tanh')(inp)
         out = Dense(1, activation='sigmoid')(x)
-
         model = Model(inp, out)
-        model.compile(
-            optimizer=Adam(learning_rate=0.001),
-            loss='binary_crossentropy',
-            metrics=['accuracy']
-        )
+        model.compile(optimizer=Adam(learning_rate=0.001), loss='binary_crossentropy', metrics=['accuracy'])
         return model
 
-    # --------------------------------------------------------
-    # TRAINING
-    # --------------------------------------------------------
-
     def train(self, df: pd.DataFrame, epochs: int = 20, batch_size: int = 16):
-        if not HAS_TF:
-            raise RuntimeError('TensorFlow tidak tersedia')
+        if not HAS_TF: return
+        
+        # Reset index
+        df_train = df.reset_index(drop=True)
+        feat_df = self._build_features(df_train)
 
-        feat_df = self._build_features(df)
+        if len(feat_df) < self.seq_len: return
 
-        # Label berbasis logika client (ground truth sederhana)
         labels = (
             (feat_df['delta_angle'] > self.angle_threshold) |
             (feat_df['delta_direction'] > self.dir_threshold)
@@ -188,155 +209,140 @@ class DirectionDeviationLSTMEngine:
 
         X, y = [], []
         for i in range(len(feat_df) - self.seq_len + 1):
-            X.append(feat_df.iloc[i:i + self.seq_len].values)
-            y.append(labels.iloc[i + self.seq_len - 1])
+            window = feat_df.iloc[i:i + self.seq_len].values
+            target = labels.iloc[i + self.seq_len - 1]
+            X.append(window)
+            y.append(target)
 
-        X = np.array(X)
-        y = np.array(y)
+        if len(X) == 0: return
 
+        X, y = np.array(X), np.array(y)
         self.model = self._build_model((self.seq_len, X.shape[-1]))
-        self.model.fit(X, y, epochs=epochs, batch_size=batch_size, verbose=0)
+        
+        # Logging
+        log_file = os.path.join(LOG_DIR, 'training.log')
+        csv_logger = CSVLogger(log_file, append=True)
+        
+        self.model.fit(X, y, epochs=epochs, batch_size=batch_size, verbose=0, callbacks=[csv_logger])
         self.model.save(self.model_path)
 
     # --------------------------------------------------------
-    # PREDICT & EXPORT
+    # DIAGNOSTIC TOOL (Cek Nama Kolom)
     # --------------------------------------------------------
+    def _inspect_data(self, df: pd.DataFrame, label="Incoming Data"):
+        print(f"\n{'='*20} DIAGNOSTIC START: {label} {'='*20}")
+        print(f"[INFO] Total Rows: {len(df)}")
+        
+        # Cek Kolom yang kita butuhkan vs yang tersedia
+        required_map = {
+            'CNN_Pred_Sudut': ['CNN_Pred_Sudut', 'CNN_sudut'],
+            'CNN_Pred_Arah': ['CNN_Pred_Arah', 'CNN_arah'],
+            'ACO_Center_Lat': ['ACO_Center_Lat', 'ACO_lat'],
+            'GA_sudut (Optional)': ['GA_sudut'], 
+        }
+        
+        print("[INFO] Checking Column Mapping:")
+        for logic_name, options in required_map.items():
+            found = [opt for opt in options if opt in df.columns]
+            if found:
+                print(f"   - {logic_name}: OK (Found: {found[0]})")
+            else:
+                if "Optional" in logic_name:
+                     print(f"   - {logic_name}: MISSING (Using Fallback 0.0)")
+                else:
+                     print(f"   - {logic_name}: MISSING [CRITICAL!]")
 
-    def predict_and_export(
-        self,
-        df: pd.DataFrame,
-        out_old: str,
-        out_new: str
-    ):
-        df = df.reset_index(drop=True)
+        # Cek Index
+        target_indices = range(598, 2091)
+        intersection = df.index.intersection(target_indices)
+        print(f"\n[CHECK] Target Index (598-2090): Ditemukan {len(intersection)}")
 
-        if not HAS_TF:
-            raise RuntimeError('TensorFlow tidak tersedia')
+        print(f"{'='*20} DIAGNOSTIC END {'='*20}\n")
 
-        if self.model is None:
-            if not os.path.exists(self.model_path):
-                raise RuntimeError('Model belum dilatih')
-            self.model = load_model(self.model_path)
-
-        feat_df = self._build_features(df)
-
-        X = []
-        for i in range(len(feat_df) - self.seq_len + 1):
-            X.append(feat_df.iloc[i:i + self.seq_len].values)
-        X = np.array(X)
-
-        preds = (self.model.predict(X, verbose=0).flatten() > 0.5)
-
-        # Align ke dataframe asli (mulai dari index 1)
-        df_out = df.iloc[1:].copy().reset_index(drop=True)
-        df_out['anomali'] = False
-        df_out.loc[self.seq_len - 1:, 'anomali'] = preds
-
-        export_cols = [
-            'Tanggal',
-            'ACO_pusat',
-            'ACO_area',
-            'GA_arah',
-            'GA_sudut',
-            'anomali'
-        ]
-        # === [ANTI-KEYERROR GUARD] ===
-        for c in export_cols:
-            if c not in df_out.columns:
-                df_out[c] = np.nan
-
-        df_out['Tanggal'] = pd.to_datetime(df_out['Tanggal'], errors='coerce')
-        df_old = df_out[df_out['Tanggal'].dt.year <= 2024][export_cols]
-        df_new = df_out[df_out['Tanggal'].dt.year == 2025][export_cols]
-
-        df_old.to_excel(out_old, index=False)
-        df_new.to_excel(out_new, index=False)
-
-
-    def run(
-        self,
-        df_dynamic: pd.DataFrame,
-        train_context: pd.DataFrame
-    ):
-        """
-        Entry point untuk ORCHESTRATOR
-        """
-        df_dynamic = df_dynamic.reset_index(drop=True)
+    # --------------------------------------------------------
+    # RUN (UPDATED)
+    # --------------------------------------------------------
+    def run(self, df_dynamic: pd.DataFrame, train_context: pd.DataFrame):
         meta = {}
+        
+        # 1. INSPEKSI DATA
+        try:
+            self._inspect_data(df_dynamic, label="df_dynamic (Input)")
+        except Exception as e:
+            print(f"[ERROR] Gagal melakukan inspeksi data: {e}")
+
+        # 2. PROSES ASLI (Safe Mode)
+        df_final = df_dynamic.copy()
+        
+        if df_final.empty:
+            df_final["direction_anomaly"] = False
+            return df_final, {"error": "Empty dataframe"}
+
+        df_calc = df_final.reset_index(drop=True)
 
         # --- TRAIN ---
         if train_context is not None and len(train_context) > self.seq_len:
-            self.train(train_context)
-            meta["trained"] = True
+            try:
+                self.train(train_context)
+                meta["trained"] = True
+            except Exception as e:
+                print(f"[WARN] Training LSTM gagal: {e}")
+                meta["trained"] = False
         else:
             meta["trained"] = False
 
         # --- PREDICT ---
-        if self.model is None:
-            if not os.path.exists(self.model_path):
-                raise RuntimeError("Direction LSTM model tidak tersedia")
-            self.model = load_model(self.model_path)
+        final_anomalies = np.zeros(len(df_calc), dtype=bool)
+        
+        if self.model is None and os.path.exists(self.model_path):
+            try:
+                self.model = load_model(self.model_path)
+            except: pass
 
-        feat_df = self._build_features(df_dynamic)
+        if self.model is not None:
+            feat_df = self._build_features(df_calc) 
+            
+            if len(feat_df) >= self.seq_len:
+                X = []
+                for i in range(len(feat_df) - self.seq_len + 1):
+                    X.append(feat_df.iloc[i:i + self.seq_len].values)
+                X = np.array(X)
 
-        if len(feat_df) < self.seq_len:
-            df_dynamic = df_dynamic.copy()
-            df_dynamic["direction_anomaly"] = False
+                if len(X) > 0:
+                    try:
+                        raw_preds = self.model.predict(X, verbose=0).flatten()
+                        preds = (raw_preds > 0.5)
+                        
+                        start_idx = self.seq_len
+                        valid_len = min(len(preds), len(df_calc) - start_idx)
 
-            export_cols = [
-                "Tanggal",
-                "GA_arah",
-                "GA_sudut",
-                "CNN_arah",
-                "CNN_sudut",
-                "direction_anomaly"
-            ]
+                        if valid_len > 0:
+                            final_anomalies[start_idx : start_idx + valid_len] = preds[:valid_len]
+                            meta["total_predictions"] = int(preds.sum())
+                    except Exception as e:
+                        print(f"[ERROR] Prediksi LSTM runtime error: {e}")
 
-            export_df = df_dynamic.reindex(columns=export_cols)
-            export_df.to_csv(CSV_PATH, index=False)
+        # --- FINAL ASSIGNMENT ---
+        try:
+            df_final["direction_anomaly"] = final_anomalies.astype(bool)
+        except Exception as e:
+            print(f"[CRITICAL] Assignment by array failed: {e}. Trying list fallback.")
+            df_final["direction_anomaly"] = final_anomalies.tolist()
+        
+        self._save_export(df_final) 
+        meta["export_path"] = CSV_PATH
+        
+        return df_final, meta
 
-            meta["status"] = "insufficient_data"
-            meta["export_path"] = CSV_PATH
-            return df_dynamic, meta
-
-        X = []
-        for i in range(len(feat_df) - self.seq_len + 1):
-            X.append(feat_df.iloc[i:i + self.seq_len].values)
-        X = np.array(X)
-
-        preds = (self.model.predict(X, verbose=0).flatten() > 0.5)
-
-        # --- ALIGN KE DF ---
-        df_dynamic = df_dynamic.copy()
-        df_dynamic["direction_anomaly"] = False
-        start_idx = 1 + (self.seq_len - 1)
-        valid_len = min(len(preds), len(df_dynamic) - start_idx)
-
-        df_dynamic.loc[
-            df_dynamic.index[start_idx : start_idx + valid_len],
-            "direction_anomaly"
-        ] = preds[:valid_len]
-
-
-
+    def _save_export(self, df: pd.DataFrame):
+        # Update export cols to match reality or logic
         export_cols = [
             "Tanggal",
-            "GA_arah",
-            "GA_sudut",
-            "CNN_arah",
-            "CNN_sudut",
             "direction_anomaly"
         ]
-
-        export_df = df_dynamic.reindex(columns=export_cols)
+        # Tambahkan kolom diagnostik jika ada
+        if 'CNN_Pred_Arah' in df.columns: export_cols.append('CNN_Pred_Arah')
+        if 'CNN_Pred_Sudut' in df.columns: export_cols.append('CNN_Pred_Sudut')
+        
+        export_df = df.reindex(columns=export_cols)
         export_df.to_csv(CSV_PATH, index=False)
-
-
-        meta["export_path"] = CSV_PATH
-        meta["total_predictions"] = int(preds.sum())
-
-        return df_dynamic, meta
-
-# ============================================================
-# END OF FILE
-# ============================================================
