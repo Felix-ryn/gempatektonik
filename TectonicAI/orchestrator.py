@@ -219,7 +219,7 @@ class TectonicOrchestrator:
         elif n_history_live == 1:
             test_idx = df_history_only.index
         else:
-            test_idx = df_history_only.index[-1:]
+            test_idx = df_history_only.index[:]
 
         # 2. Train Index: Semua Index yang BUKAN Test Index
         all_indices = df_dynamic.index
