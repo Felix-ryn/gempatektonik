@@ -311,7 +311,23 @@ class TectonicOrchestrator:
                 if col not in df_dynamic.columns:
                     df_dynamic[col] = 0.0 if col != "is_Anomaly" else False
 
-        # --- C2. Direction Deviation LSTM (Arah & Sudut Deviasi) ---
+
+        # --- D. CNN (Spatial Analysis) ---
+        try:
+            cnn_path = self.config.get("cnn_hybrid_model", {})
+            cnn = CNNEngine(cnn_path)
+            # Update index agar sesuai dengan data yang mungkin sudah berubah ukurannya
+            current_train_idx = np.intersect1d(train_idx, df_dynamic.index)
+            current_test_idx = np.intersect1d(test_idx, df_dynamic.index)
+            
+            df_dynamic = cnn.train_and_predict(df_dynamic, current_train_idx, current_test_idx)
+            self.logger.info("[ORCH] CNN finished.")
+        except Exception as e:
+            self.logger.error(f"[ORCH] CNN Error: {e}")
+            if "Proporsi_Grid_Terdampak_CNN" not in df_dynamic.columns: df_dynamic["Proporsi_Grid_Terdampak_CNN"] = 0.0
+        
+
+        # E. Direction Deviation LSTM (Arah & Sudut Deviasi) ---
         try:
             dir_lstm_cfg = self.config.get("direction_lstm_model", {})
             dir_lstm = DirectionDeviationLSTMEngine(
@@ -337,6 +353,20 @@ class TectonicOrchestrator:
             else:
                 train_context = pd.DataFrame()
 
+            
+            required_cols = [
+                "CNN_Pred_Sudut",
+                "CNN_Pred_Arah"
+            ]
+
+            missing = [c for c in required_cols if c not in df_dynamic.columns]
+
+            if missing:
+                raise RuntimeError(
+                    f"Direction LSTM aborted — missing CNN columns: {missing}"
+                )
+
+
             df_dynamic, dir_meta = dir_lstm.run(df_dynamic, train_context)
 
             summary["direction_lstm_meta"] = dir_meta
@@ -356,22 +386,7 @@ class TectonicOrchestrator:
                 if col not in df_dynamic.columns:
                     df_dynamic[col] = np.nan
 
-
-        # --- D. CNN (Spatial Analysis) ---
-        try:
-            cnn_path = self.config.get("cnn_hybrid_model", {})
-            cnn = CNNEngine(cnn_path)
-            # Update index agar sesuai dengan data yang mungkin sudah berubah ukurannya
-            current_train_idx = np.intersect1d(train_idx, df_dynamic.index)
-            current_test_idx = np.intersect1d(test_idx, df_dynamic.index)
-            
-            df_dynamic = cnn.train_and_predict(df_dynamic, current_train_idx, current_test_idx)
-            self.logger.info("[ORCH] CNN finished.")
-        except Exception as e:
-            self.logger.error(f"[ORCH] CNN Error: {e}")
-            if "Proporsi_Grid_Terdampak_CNN" not in df_dynamic.columns: df_dynamic["Proporsi_Grid_Terdampak_CNN"] = 0.0
-
-        # --- E. Evaluation (Final Ensembling) ---
+        # --- F. Evaluation (Final Ensembling) ---
         try:
             evaluator = EvaluationEngine(self.config)
             # Update index lagi

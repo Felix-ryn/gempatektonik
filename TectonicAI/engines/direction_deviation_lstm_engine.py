@@ -57,6 +57,28 @@ def circular_angle_diff(a: float, b: float) -> float:
     except:
         return 0.0
 
+def normalize_dir(d):
+    """
+    Normalisasi arah dari format Bahasa / bebas
+    ke format kompas standar (N, E, S, W, dst).
+    """
+    mapping = {
+        "UTARA": "N",
+        "TIMUR": "E",
+        "SELATAN": "S",
+        "BARAT": "W",
+        "NORTH": "N",
+        "EAST": "E",
+        "SOUTH": "S",
+        "WEST": "W"
+    }
+    try:
+        d_clean = str(d).strip().upper()
+        return mapping.get(d_clean, d_clean)
+    except:
+        return d
+
+
 def direction_distance(dir_a: str, dir_b: str) -> float:
     compass = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
     try:
@@ -150,10 +172,20 @@ class DirectionDeviationLSTMEngine:
             
             # --- 2. Delta Direction (GA vs CNN) ---
             if col_ga_dir:
-                f_dir = [direction_distance(p, c) for p, c in zip(prev_data[col_ga_dir], curr_data[col_cnn_dir])]
+                f_dir = [
+                    direction_distance(
+                        normalize_dir(p),
+                        normalize_dir(c)
+                    )
+                    for p, c in zip(
+                        prev_data[col_ga_dir],
+                        curr_data[col_cnn_dir]
+                    )
+                ]
             else:
-                # [FALLBACK] Sama, isi 0
+                # [FALLBACK] Jika GA tidak tersedia
                 f_dir = [0.0] * len(curr_data)
+
             
             # --- 3. Delta ACO Center (Haversine) ---
             f_aco_dist = [

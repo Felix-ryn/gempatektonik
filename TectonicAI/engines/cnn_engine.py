@@ -1217,6 +1217,19 @@ class CNNEngine:
                         "consistency_flag": consistency_flag
                     }
 
+                    # =====================================================
+                    # 🔗 ACO → LSTM BRIDGE (WAJIB, FIX KOLOM MISSING)
+                    # =====================================================
+                    new_data.update({
+                        # pusat ACO (HARUS SAMA NAMA DENGAN LSTM)
+                        "ACO_Center_Lat": row_data.get("ACO_center_x"),
+                        "ACO_Center_Lon": row_data.get("ACO_center_y"),
+
+                        # radius dampak (opsional tapi penting)
+                        "ACO_Impact_Radius_km": row_data.get("Context_Impact_Radius"),
+                    })
+
+
                     # ===============================
                     # TAMBAHAN: SAMPLING ALTERNATIF
                     # ===============================
