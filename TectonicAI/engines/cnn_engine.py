@@ -975,12 +975,29 @@ class CNNEngine:
             except:
                 pass
         
-        # LOGIC BACKFILL: Jika CSV kosong, ambil 10 data terakhir. Jika tidak, ambil 1 data terakhir.
-        if not csv_exists_and_filled:
-            self.logger.info("CNN INFO: Log CSV kosong. Mengaktifkan 'Smart Backfill' (10 data historis)...")
-            rows_to_predict = train_df.tail(10).iterrows() 
-        else:
-            rows_to_predict = train_df.tail(1).iterrows()
+        # =====================================================
+        # LOGIC PREDICTION TARGET (FULL FILL MODE - SAFE)
+        # =====================================================
+
+        # Sync index (WAJIB)
+        df_proc = df_proc.reset_index(drop=True)
+        df_main = df_main.reset_index(drop=True)
+
+        # Pastikan kolom CNN ada
+        for col in ["CNN_Pred_Sudut", "CNN_Pred_Arah"]:
+            if col not in df_main.columns:
+                df_main[col] = np.nan
+
+        # Mask baris yang belum diprediksi
+        mask_unpredicted = df_main["CNN_Pred_Sudut"].isna()
+
+        rows_to_predict = df_proc.loc[mask_unpredicted].iterrows()
+
+        self.logger.info(
+            f"CNN MODE: Full CSV Fill aktif. "
+            f"Total baris diprediksi = {mask_unpredicted.sum()}"
+        )
+
 
         # Variabel penampung hasil akhir untuk injection
         final_risk_array = np.array([0.0])
@@ -1280,32 +1297,27 @@ class CNNEngine:
             final_validation_note = validation_note
             final_risk_array = risk_array
 
+            # =====================================================
+            # ✅ FIX UTAMA: INJECTION PER BARIS (BUKAN TERAKHIR SAJA)
+            # =====================================================
+
+            # Pastikan kolom ada
+            for col in [
+                "CNN_Risk_Array",
+                "CNN_Pred_Arah",
+                "CNN_Pred_Sudut",
+                "CNN_Validasi_Msg"
+            ]:
+                if col not in df_main.columns:
+                    df_main[col] = None
+
+            # Inject langsung ke baris yang sedang diprediksi
+            df_main.at[idx_row, "CNN_Risk_Array"] = risk_array
+            df_main.at[idx_row, "CNN_Pred_Arah"] = pred_arah
+            df_main.at[idx_row, "CNN_Pred_Sudut"] = pred_sudut
+            df_main.at[idx_row, "CNN_Validasi_Msg"] = validation_note
+
+
         self.logger.info("CNN PREDICTION: Selesai memproses batch prediksi (Backfill/Realtime).")
-
-        # --------------------------------------------------------
-        # 6. INJECTION KE DATAFRAME UTAMA
-        # --------------------------------------------------------
-        target_time_col = None
-        for col_name in ['timestamp', 'time', 'Tanggal']:
-            if col_name in df_main.columns:
-                target_time_col = pd.to_datetime(df_main[col_name], errors='coerce')
-                break
-        
-        idx = df_main.index[-1]
-        last_ts = train_df.iloc[-1].get('timestamp', None)
-
-        if target_time_col is not None and last_ts is not None:
-            matches = df_main[target_time_col == last_ts].index
-            if not matches.empty:
-                idx = matches[0]
-
-        if "CNN_Risk_Array" not in df_main.columns:
-            df_main["CNN_Risk_Array"] = None
-            df_main["CNN_Risk_Array"] = df_main["CNN_Risk_Array"].astype(object)
-
-        df_main.at[idx, "CNN_Risk_Array"] = final_risk_array
-        df_main.at[idx, "CNN_Pred_Arah"] = final_pred_arah
-        df_main.at[idx, "CNN_Pred_Sudut"] = final_pred_sudut
-        df_main.at[idx, "CNN_Validasi_Msg"] = final_validation_note
 
         return df_main
