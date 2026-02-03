@@ -367,14 +367,58 @@ class DirectionDeviationLSTMEngine:
         return df_final, meta
 
     def _save_export(self, df: pd.DataFrame):
-        # Update export cols to match reality or logic
-        export_cols = [
-            "Tanggal",
-            "direction_anomaly"
-        ]
-        # Tambahkan kolom diagnostik jika ada
-        if 'CNN_Pred_Arah' in df.columns: export_cols.append('CNN_Pred_Arah')
-        if 'CNN_Pred_Sudut' in df.columns: export_cols.append('CNN_Pred_Sudut')
+        """
+        Menyimpan output sesuai request Client:
+        1. Format Excel (.xlsx).
+        2. Dipisah: Data Lama (<= 2024) dan Data Baru (>= 2025).
+        3. Kolom Wajib: Waktu, ACO (Pusat, Area), GA (Sudut, Arah), Anomali.
+        """
+        # 1. Definisikan Kolom yang diminta Client
+        # Kita mapping nama kolom internal ke nama kolom laporan agar rapi
+        target_mapping = {
+            'Tanggal': 'Waktu',
+            'ACO_Center_Lat': 'ACO_Pusat_Lat',
+            'ACO_Center_Lon': 'ACO_Pusat_Lon',
+            'ACO_Impact_Radius_km': 'ACO_Area',
+            'GA_sudut': 'GA_Sudut',
+            'GA_arah': 'GA_Arah',
+            'CNN_Pred_Sudut': 'CNN_Sudut_Ref', # Tambahan referensi
+            'CNN_Pred_Arah': 'CNN_Arah_Ref',   # Tambahan referensi
+            'direction_anomaly': 'Anomali'
+        }
+
+        # Pastikan kolom tersedia di DataFrame
+        available_cols = [c for c in target_mapping.keys() if c in df.columns]
         
-        export_df = df.reindex(columns=export_cols)
-        export_df.to_csv(CSV_PATH, index=False)
+        if not available_cols:
+            print("[ERROR] Tidak ada kolom yang sesuai untuk di-export.")
+            return
+
+        # Buat DataFrame khusus export
+        export_df = df[available_cols].rename(columns=target_mapping)
+        
+        # Pastikan format tanggal benar
+        if 'Waktu' in export_df.columns:
+            export_df['Waktu'] = pd.to_datetime(export_df['Waktu'])
+
+        # 2. Split Data (Logic Pemisahan Tahun)
+        # File 1: Data Lama (2022 - 2024)
+        df_old = export_df[export_df['Waktu'].dt.year <= 2024]
+        path_old = os.path.join(OUTPUT_DIR, "Laporan_Arah_Data_Lama_2022_2024.xlsx")
+        
+        # File 2: Data Baru (2025 ke atas) -> Ini yang dijadikan validasi
+        df_new = export_df[export_df['Waktu'].dt.year >= 2025]
+        path_new = os.path.join(OUTPUT_DIR, "Laporan_Arah_Validasi_2025.xlsx")
+
+        try:
+            # Simpan ke Excel
+            if not df_old.empty:
+                df_old.to_excel(path_old, index=False)
+                print(f"[SUCCESS] Data Lama saved to: {path_old}")
+            
+            if not df_new.empty:
+                df_new.to_excel(path_new, index=False)
+                print(f"[SUCCESS] Data 2025 saved to: {path_new}")
+                
+        except Exception as e:
+            print(f"[ERROR] Gagal menyimpan Excel: {e}")
