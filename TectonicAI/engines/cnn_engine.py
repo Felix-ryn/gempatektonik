@@ -87,6 +87,7 @@ def dir_from_angle(angle_deg: float) -> str:
     else:
         return "Barat Laut"
 
+
 def bearing_deg(lat1, lon1, lat2, lon2):
     """
     Menghitung bearing (azimuth) dari titik 1 ke titik 2 (0–360°)
