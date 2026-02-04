@@ -69,14 +69,23 @@ def calculate_angular_diff(pred_angle, true_angle):
 
 def dir_from_angle(angle_deg: float) -> str:
     angle = angle_deg % 360.0
-    if angle >= 315 or angle < 45:
+    # Menggunakan pembagian 45 derajat per arah (8 arah mata angin)
+    if angle >= 337.5 or angle < 22.5:
         return "Utara"
-    elif angle >= 45 and angle < 135:
+    elif 22.5 <= angle < 67.5:
+        return "Timur Laut"
+    elif 67.5 <= angle < 112.5:
         return "Timur"
-    elif angle >= 135 and angle < 225:
+    elif 112.5 <= angle < 157.5:
+        return "Tenggara"
+    elif 157.5 <= angle < 202.5:
         return "Selatan"
-    else:
+    elif 202.5 <= angle < 247.5:
+        return "Barat Daya"
+    elif 247.5 <= angle < 292.5:
         return "Barat"
+    else:
+        return "Barat Laut"
 
 def bearing_deg(lat1, lon1, lat2, lon2):
     """
