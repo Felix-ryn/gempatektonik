@@ -451,7 +451,7 @@ class DirectionDeviationLSTMEngine:
         path_old = os.path.join(OUTPUT_DIR, "Laporan_Arah_Data_Lama_2022_2024.xlsx")
         
         # File 2: Data Baru (2025 ke atas) -> Ini yang dijadikan validasi
-        df_new = export_df[export_df['Waktu'].dt.year >= 2025]
+        df_new = export_df[export_df['Waktu'].dt.year == 2025]
         path_new = os.path.join(OUTPUT_DIR, "Laporan_Arah_Validasi_2025.xlsx")
 
         try:
