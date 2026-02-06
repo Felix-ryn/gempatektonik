@@ -439,6 +439,7 @@ def run_full_pipeline() -> Tuple[pd.DataFrame, Dict[str, Any]]:
     orchestrator = TectonicOrchestrator(CONFIG)
     return orchestrator.run_full_pipeline()
 
+
 if __name__ == "__main__":
     # Test Run
     df_result, res_summary = run_full_pipeline()
