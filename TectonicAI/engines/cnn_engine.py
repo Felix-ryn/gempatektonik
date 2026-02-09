@@ -100,6 +100,30 @@ def bearing_deg(lat1, lon1, lat2, lon2):
 
     return (degrees(atan2(x, y)) + 360) % 360
 
+def project_point(lat, lon, bearing_deg, distance_km):
+    """
+    Proyeksi titik dari (lat, lon) sejauh distance_km ke arah bearing_deg.
+    Menggunakan great-circle navigation (geodesi standar).
+    """
+    R = 6371.0  # radius bumi (km)
+    bearing = radians(bearing_deg)
+
+    lat1 = radians(lat)
+    lon1 = radians(lon)
+
+    lat2 = asin(
+        sin(lat1) * cos(distance_km / R) +
+        cos(lat1) * sin(distance_km / R) * cos(bearing)
+    )
+
+    lon2 = lon1 + atan2(
+        sin(bearing) * sin(distance_km / R) * cos(lat1),
+        cos(distance_km / R) - sin(lat1) * sin(lat2)
+    )
+
+    return degrees(lat2), degrees(lon2)
+
+
 def extract_direction_and_angle(mask: np.ndarray) -> Tuple[float, float, float]:
     """
     Ekstrak arah (azimuth), sudut sebaran, dan confidence dari output CNN mask.
@@ -1077,154 +1101,143 @@ class CNNEngine:
             validation_note = "Menunggu Data Masa Depan"
             diff_angle = -1.0
             status_validasi = "PENDING"
-            
+            PROJ_DISTANCE_KM = 150.0   # asumsi konservatif (WAJIB dijelaskan di laporan)
+            SPATIAL_RADIUS_KM = 50.0   # radius wilayah target
+
             # =====================================================
-            # ROBUST VALIDATION (WINDOW EVENT TEST)
+            # ROBUST VALIDATION (SPATIAL PROJECTION – NO GT ANGLE)
             # =====================================================
-            threshold = 60.0
+
+            threshold_angle = 60.0
+            spatial_radius_km = 50.0
+            window_days = 30
+
             found = False
             best_diff = None
             best_row = None
-            closest_candidates = []  
+            closest_candidates = []
 
+            # ---------------------------------
+            # 1. WINDOW-BASED SAMPLING
+            # ---------------------------------
+            base_time = row_data.get("timestamp")
 
-            if not test_df.empty:
+            if "timestamp" in test_df.columns and base_time is not None:
+                candidates_df = test_df[
+                    (test_df["timestamp"] >= base_time) &
+                    (test_df["timestamp"] <= base_time + pd.Timedelta(days=window_days))
+                ]
+            else:
+                candidates_df = test_df.copy()
 
-                # ===============================
-                # WINDOW-BASED SAMPLING (FIX)
-                # ===============================
-                window_days = 30
-                base_time = row_data.get("timestamp")
+            if candidates_df.empty:
+                candidates_df = test_df.copy()
 
-                if "timestamp" in test_df.columns and base_time is not None:
-                    candidates_df = test_df[
-                        (test_df["timestamp"] >= base_time) &
-                        (test_df["timestamp"] <= base_time + pd.Timedelta(days=window_days))
-                    ]
-                else:
-                    candidates_df = test_df.copy()
+            # ---------------------------------
+            # 2. SAFETY GUARD: KOORDINAT WAJIB
+            # ---------------------------------
+            required_cols = {"ACO_center_x", "ACO_center_y"}
 
-                # fallback jika kosong
-                if candidates_df.empty:
-                    candidates_df = test_df.copy()
+            if not required_cols.issubset(candidates_df.columns):
+                self.logger.warning("VALIDATION SKIPPED: Koordinat event 2025 tidak lengkap.")
+                status_validasi = "KOORDINAT_TIDAK_LENGKAP"
+                diff_angle = 180.0
+                validation_note = "Validasi dilewati karena data koordinat tidak tersedia."
 
-                # ===============================
-                # SAFETY GUARD: KOLUM ARAH
-                # ===============================
-                required_cols = {"ACO_center_x", "ACO_center_y"}
-
-                if not required_cols.issubset(candidates_df.columns):
-                    self.logger.warning(
-                        "VALIDATION WARNING: Kolom koordinat tidak lengkap. "
-                        "Validasi arah dilewati."
+            else:
+                # ---------------------------------
+                # 3. PROYEKSI TITIK DARI HASIL CNN
+                # ---------------------------------
+                try:
+                    proj_lat, proj_lon = project_point(
+                        row_data["ACO_center_x"],
+                        row_data["ACO_center_y"],
+                        pred_sudut,
+                        spatial_radius_km
                     )
-                    diff_angle = 180.0
-                    status_validasi = "KOORDINAT_TIDAK_LENGKAP"
-                    validation_note = "Lat/Lon event tidak tersedia."
+                except Exception:
+                    proj_lat, proj_lon = None, None
 
+                # ---------------------------------
+                # 4. ITERASI EVENT 2025
+                # ---------------------------------
                 for _, actual_event in candidates_df.iterrows():
-
                     try:
                         actual_sudut = bearing_deg(
-                        row_data["ACO_center_x"],   # basis lat (2024)
-                        row_data["ACO_center_y"],   # basis lon
-                        actual_event["ACO_center_x"],  # lat event 2025
-                        actual_event["ACO_center_y"]   # lon event 2025
-                    )
-                    except Exception:
-                        continue  # skip jika data lat/lon tidak valid
+                            row_data["ACO_center_x"],
+                            row_data["ACO_center_y"],
+                            actual_event["ACO_center_x"],
+                            actual_event["ACO_center_y"]
+                        )
 
+                        dist_km = self._haversine_km(
+                            proj_lat, proj_lon,
+                            actual_event["ACO_center_x"],
+                            actual_event["ACO_center_y"]
+                        )
+                    except Exception:
+                        continue
 
                     diff = self._angle_diff(pred_sudut, actual_sudut)
 
-                    # SIMPAN SEMUA KANDIDAT
                     closest_candidates.append({
                         "timestamp": actual_event.get("timestamp"),
                         "angle": actual_sudut,
-                        "diff": diff
+                        "diff": diff,
+                        "distance_km": dist_km
                     })
 
                     if best_diff is None or diff < best_diff:
                         best_diff = diff
                         best_row = actual_event
 
-                    if diff <= threshold:
+                    if diff <= threshold_angle and dist_km is not None and dist_km <= spatial_radius_km:
                         found = True
                         break
 
-                # ===============================
-                # AMBIL TOP-K CLOSEST SAMPLING
-                # ===============================
-                TOP_K = 2  # "sampling satu lagi"
+                # ---------------------------------
+                # 5. POST-PROCESSING
+                # ---------------------------------
+                if best_diff is None:
+                    best_diff = 180.0
+
+                diff_angle = best_diff
+
                 closest_candidates = sorted(
                     closest_candidates,
                     key=lambda x: x["diff"]
-                )[:TOP_K]
+                )[:2]
 
-                # ===============================
-                # SAFETY NET: DATA KOSONG
-                # ===============================
-                if best_diff is None:
-                    best_diff = 180.0  # worst-case angular uncertainty
-
-                diff_angle = best_diff  # SINGLE SOURCE OF TRUTH
-
-                if best_row is None:
-                    status_validasi = "DATA_TIDAK_CUKUP"
-                    diff_angle = 180.0
+                if found:
+                    status_validasi = "VALID"
+                    validation_note = "Event 2025 ditemukan sesuai arah dan proyeksi spasial."
+                else:
+                    status_validasi = "MENYIMPANG"
                     validation_note = (
-                        "Data aktual tidak cukup dalam window waktu "
-                        "untuk melakukan validasi prediksi."
+                        f"Tidak ada event dalam threshold. "
+                        f"Selisih terdekat {best_diff:.1f}°."
                     )
 
-                else:
-                    # ===============================
-                    # STATUS VALIDASI (SOFT & ILMIAH)
-                    # ===============================
-                    if best_diff <= threshold:
-                        status_validasi = "RELEVAN"
-                        validation_note = (
-                            f"Match ditemukan. Prediksi {pred_arah} ({pred_sudut:.1f}°), "
-                            f"Aktual ({best_row.get('Arah_Derajat', best_row.get('angle',0.0)):.1f}°). "
-                            f"Selisih {best_diff:.1f}°."
-                        )
 
-                    elif best_diff <= threshold * 1.5:
-                        status_validasi = "MENDEKATI"
+            # =====================================================
+            # PROYEKSI TITIK DARI HASIL CNN (INTI PERMINTAAN CLIENT)
+            # =====================================================
+            try:
+                proj_lat, proj_lon = project_point(
+                    row_data["ACO_center_x"],   # lat basis (2024)
+                    row_data["ACO_center_y"],   # lon basis
+                    pred_sudut,                 # arah hasil CNN
+                    PROJ_DISTANCE_KM
+                )
+            except Exception:
+                proj_lat, proj_lon = None, None
 
-                        if closest_candidates:
-                            alt = closest_candidates[0]
-                            validation_note = (
-                                f"Prediksi mendekati kejadian aktual. "
-                                f"Selisih {best_diff:.1f}°. "
-                                f"Alternatif sampling {alt['angle']:.1f}° "
-                                f"(selisih {alt['diff']:.1f}°)."
-                            )
-                        else:
-                            validation_note = (
-                                f"Prediksi mendekati kejadian aktual. "
-                                f"Selisih {best_diff:.1f}°."
-                            )
 
-                    else:
-                        status_validasi = "MENYIMPANG"
-
-                        if closest_candidates:
-                            alt = closest_candidates[0]
-                            validation_note = (
-                                f"Tidak ada match dalam threshold. "
-                                f"Selisih terdekat {best_diff:.1f}°. "
-                                f"Alternatif sampling {alt['angle']:.1f}° "
-                                f"(selisih {alt['diff']:.1f}°)."
-                            )
-                        else:
-                            validation_note = f"Tidak ada match. Selisih terdekat {best_diff:.1f}°."
-
-            
             accuracy_percent = self._accuracy_from_angle(
                 diff_angle,
-                threshold=threshold
+                threshold=threshold_angle
             )
+
             # --- PENYIMPANAN DATA (FIX KEYERROR: KEMBALIKAN NAMA KOLOM LAMA) ---
             if out_path:
                 try:
@@ -1232,22 +1245,44 @@ class CNNEngine:
 
                     new_data = {
                         "timestamp": pd.Timestamp.now(),
+                        "basis_data_terakhir": row_data.get("timestamp"),
+
                         "arah_prediksi": pred_arah,
                         "arah_derajat": pred_sudut,
-                        "risk_k_array": str(risk_array.tolist()),
-                        "confidence_scalar": confidence,
+                        "dir_inferred_from_angle": dir_by_angle,
 
-                        # ✅ SINGLE SOURCE OF TRUTH
+                        "confidence_scalar": confidence,
                         "akurasi_prediksi_persen": accuracy_percent,
 
-                        "sumber": "SimpleCNN_SmartBackfill",
-                        "basis_data_terakhir": row_data.get('timestamp', pd.Timestamp.now()),
+                        "status_validasi": status_validasi,
                         "validasi_note": validation_note,
                         "selisih_sudut": diff_angle,
-                        "status_validasi": status_validasi,
-                        "dir_inferred_from_angle": dir_by_angle,
+
+                        "ACO_Center_Lat": row_data.get("ACO_center_x"),
+                        "ACO_Center_Lon": row_data.get("ACO_center_y"),
+                        "ACO_Impact_Radius_km": row_data.get("Context_Impact_Radius"),
+
+                        "proj_distance_km": PROJ_DISTANCE_KM,
+                        "proj_target_lat": proj_lat,
+                        "proj_target_lon": proj_lon,
+
+                        "alt_sampling_1_angle": self._report_value(
+                            closest_candidates[0]["angle"] if len(closest_candidates) > 0 else None
+                        ),
+                        "alt_sampling_1_diff": self._report_value(
+                            closest_candidates[0]["diff"] if len(closest_candidates) > 0 else None
+                        ),
+                        "alt_sampling_2_angle": self._report_value(
+                            closest_candidates[1]["angle"] if len(closest_candidates) > 1 else None
+                        ),
+                        "alt_sampling_2_diff": self._report_value(
+                            closest_candidates[1]["diff"] if len(closest_candidates) > 1 else None
+                        ),
+
+                        "sumber": "SimpleCNN_SmartBackfill",
                         "consistency_flag": consistency_flag
                     }
+
 
                     # =====================================================
                     # 🔗 ACO → LSTM BRIDGE (WAJIB, FIX KOLOM MISSING)
@@ -1293,11 +1328,12 @@ class CNNEngine:
                     file_exists = os.path.exists(out_path)
                     output_df.to_csv(
                         out_path,
-                        mode='a',
-                        header=not file_exists,
+                        mode='w',        
+                        header=True,       
                         index=False,
                         encoding='utf-8-sig'
                     )
+
 
                 except PermissionError:
                     self.logger.error(
