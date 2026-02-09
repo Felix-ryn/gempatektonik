@@ -1111,21 +1111,26 @@ class CNNEngine:
                 # ===============================
                 # SAFETY GUARD: KOLUM ARAH
                 # ===============================
-                if "Arah_Derajat" not in candidates_df.columns:
+                required_cols = {"ACO_center_x", "ACO_center_y"}
+
+                if not required_cols.issubset(candidates_df.columns):
                     self.logger.warning(
-                        "VALIDATION WARNING: Kolom Arah_Derajat tidak ditemukan. "
-                        "Validasi arah tidak bermakna."
+                        "VALIDATION WARNING: Kolom koordinat tidak lengkap. "
+                        "Validasi arah dilewati."
                     )
-                    status_validasi = "DATA_ARAH_TIDAK_TERSEDIA"
                     diff_angle = 180.0
-                    validation_note = "Arah aktual tidak tersedia, validasi dilewati."
+                    status_validasi = "KOORDINAT_TIDAK_LENGKAP"
+                    validation_note = "Lat/Lon event tidak tersedia."
 
                 for _, actual_event in candidates_df.iterrows():
 
                     try:
-                        actual_sudut = float(
-                            actual_event.get("Arah_Derajat", actual_event.get("angle", 0.0))
-                        )
+                        actual_sudut = bearing_deg(
+                        row_data["ACO_center_x"],   # basis lat (2024)
+                        row_data["ACO_center_y"],   # basis lon
+                        actual_event["ACO_center_x"],  # lat event 2025
+                        actual_event["ACO_center_y"]   # lon event 2025
+                    )
                     except Exception:
                         continue  # skip jika data lat/lon tidak valid
 
