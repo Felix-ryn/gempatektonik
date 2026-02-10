@@ -1362,6 +1362,7 @@ class CNNEngine:
                 if col not in df_main.columns:
                     df_main[col] = None
 
+
             # Inject langsung ke baris yang sedang diprediksi
             df_main.at[idx_row, "CNN_Risk_Array"] = risk_array
             df_main.at[idx_row, "CNN_Pred_Arah"] = pred_arah
