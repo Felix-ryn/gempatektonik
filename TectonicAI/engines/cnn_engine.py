@@ -1350,9 +1350,7 @@ class CNNEngine:
             final_validation_note = validation_note
             final_risk_array = risk_array
 
-            # =====================================================
-            # ✅ FIX UTAMA: INJECTION PER BARIS (BUKAN TERAKHIR SAJA)
-            # =====================================================
+          
 
             # Pastikan kolom ada
             for col in [

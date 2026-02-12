@@ -8,9 +8,7 @@ import os
 
 st.set_page_config(page_title="System Evaluation", layout="wide", page_icon="✅")
 
-# =========================================================
 # 1. LOAD METRICS JSON (General System Health / Training Result)
-# =========================================================
 def load_real_metrics():
     """Membaca file JSON hasil output training (metrics, confusion matrix)."""
     current_dir = os.path.dirname(os.path.abspath(__file__))
