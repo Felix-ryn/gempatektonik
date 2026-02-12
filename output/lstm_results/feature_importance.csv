@@ -1,0 +1,9 @@
+Feature,Importance
+hour_cos,0.19167982
+Global_Tectonic_Stress,0.17207971
+month_cos,0.13614477
+Magnitudo,0.12793575
+month_sin,0.11734873
+Context_Risk_Pheromone,0.10775793
+hour_sin,0.08742474
+Dist_To_GA_Pred,0.059628483

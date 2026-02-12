@@ -1,0 +1,19 @@
+{
+    "model_name": "Hybrid Transformer-LSTM",
+    "role": "Temporal Relation & Anomaly Analyzer",
+    "input_sources": [
+        "Historical Seismic",
+        "ACO",
+        "GA"
+    ],
+    "explicitly_not_used_for": [
+        "Direction Prediction",
+        "Angle Prediction"
+    ],
+    "client_logic": {
+        "ACO": "Menentukan pusat & luas terdampak",
+        "GA": "Memberikan stress & arah referensi",
+        "LSTM": "Menyimpan memori temporal dan hubungan ACO-GA"
+    },
+    "generated_at": "2026-02-13T00:30:09.853882"
+}

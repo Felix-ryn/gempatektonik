@@ -2,37 +2,33 @@
 import pandas as pd
 import plotly.figure_factory as ff
 import plotly.express as px
-import numpy as np
+import plotly.graph_objects as go
 import json
 import os
 
 st.set_page_config(page_title="System Evaluation", layout="wide", page_icon="✅")
 
 # =========================================================
-# LOAD METRICS JSON (EVALUATION ENGINE)
+# 1. LOAD METRICS JSON (General System Health / Training Result)
 # =========================================================
 def load_real_metrics():
-    """
-    Membaca file JSON hasil output dari evaluation_engine.py
-    """
+    """Membaca file JSON hasil output training (metrics, confusion matrix)."""
     current_dir = os.path.dirname(os.path.abspath(__file__))
     file_path = os.path.join(current_dir, "..", "..", "output", "system_metrics.json")
 
     if os.path.exists(file_path):
         try:
             with open(file_path, 'r') as f:
-                data = json.load(f)
-            return data
-        except Exception as e:
-            st.error(f"Gagal membaca file metrics: {e}")
+                return json.load(f)
+        except Exception:
             return None
     return None
 
-
 # =========================================================
-# LOAD VALIDASI CNN (CSV)
+# 2. LOAD VALIDASI CNN (Logika Engine Baru - Spatial)
 # =========================================================
 def load_cnn_validation():
+    """Membaca CSV hasil prediksi CNN Engine (Titanium Safe Edition)."""
     current_dir = os.path.dirname(os.path.abspath(__file__))
     csv_path = os.path.join(
         current_dir,
@@ -43,81 +39,46 @@ def load_cnn_validation():
     if os.path.exists(csv_path):
         try:
             df = pd.read_csv(csv_path)
-            df["timestamp"] = pd.to_datetime(df["timestamp"])
+            if "timestamp" in df.columns:
+                df["timestamp"] = pd.to_datetime(df["timestamp"], errors='coerce')
             return df
         except Exception as e:
             st.error(f"Gagal membaca CSV validasi CNN: {e}")
             return None
     return None
 
-
 # =========================================================
 # MAIN DASHBOARD
 # =========================================================
 def main():
-    st.title("✅ Evaluasi Sistem (Real-Time Metrics)")
-
-    # =====================================================
-    # LOAD DATA
-    # =====================================================
-    data = load_real_metrics()
+    st.title("✅ Evaluasi Sistem & Validasi Model")
+    
+    # Load Data
+    data_metrics = load_real_metrics()
     df_val = load_cnn_validation()
 
     # =====================================================
-    # INFO SKEMA VALIDASI (CLIENT / DOSEN)
+    # BAGIAN 1: PERFORMA TRAINING (METRICS & CONFUSION MATRIX)
+    # Relevan dengan Screenshot Anda
     # =====================================================
-    st.markdown("### 🧪 Skema Validasi Model")
-
-    if df_val is not None:
-        st.info(
-            """
-            🔍 **Metode Validasi Arah Gempa**
-            - Data latih: **2022 – 2024**
-            - Validasi:
-              - Prioritas: **Data gempa aktual BMKG 2025**
-              - Fallback: **Backtesting historis (2024)**
-            - Fokus evaluasi: **arah & sudut pergerakan**, bukan lokasi absolut
-            """
-        )
-    else:
-        st.warning("⚠️ Data validasi CNN belum tersedia.")
-
-    st.markdown("---")
-
-    # =====================================================
-    # DEFAULT VALUE (FALLBACK)
-    # =====================================================
-    accuracy = 0.0
-    precision = 0.0
-    recall = 0.0
-    z = [[0, 0, 0], [0, 0, 0], [0, 0, 0]]
-    labels = ['Rendah', 'Sedang', 'Tinggi']
-
-    if data:
-        st.success(f"📌 Data Evaluasi Terakhir: {data.get('timestamp', 'Unknown')}")
-
-        metrics = data.get("metrics", {})
+    st.header("1. Performa Model (Training & Testing)")
+    
+    accuracy, precision, recall = 0.0, 0.0, 0.0
+    labels = ['Rendah', 'Sedang', 'Tinggi'] # Default
+    cm_data = []
+    
+    if data_metrics:
+        metrics = data_metrics.get("metrics", {})
         accuracy = metrics.get("accuracy", 0.0)
+        avg = metrics.get("weighted avg", {})
+        precision = avg.get("precision", 0.0)
+        recall = avg.get("recall", 0.0)
+        
+        cm_data = data_metrics.get("confusion_matrix", [])
+        if "labels" in data_metrics:
+            labels = data_metrics["labels"]
 
-        avg_metrics = metrics.get("weighted avg", {})
-        precision = avg_metrics.get("precision", 0.0)
-        recall = avg_metrics.get("recall", 0.0)
-
-        cm_data = data.get("confusion_matrix", [])
-        if cm_data:
-            z = cm_data
-
-        if "labels" in data:
-            labels = data["labels"]
-    else:
-        st.warning("⚠️ File system_metrics.json belum ditemukan.")
-
-    x_labels = [f'Prediksi {l}' for l in labels]
-    y_labels = [f'Aktual {l}' for l in labels]
-
-    # =====================================================
-    # KPI UTAMA
-    # =====================================================
+    # --- KPI CARDS ---
     c1, c2, c3 = st.columns(3)
     c1.metric("Akurasi Model", f"{accuracy*100:.1f}%")
     c2.metric("Presisi (Weighted)", f"{precision*100:.1f}%")
@@ -125,127 +86,162 @@ def main():
 
     st.markdown("---")
 
-    # =====================================================
-    # CONFUSION MATRIX
-    # =====================================================
+    # --- CHARTS ROW (Confusion Matrix & F1-Score) ---
     col_l, col_r = st.columns([1, 1])
 
     with col_l:
         st.subheader("🧩 Confusion Matrix")
-
-        if len(z) == len(x_labels):
-            fig = ff.create_annotated_heatmap(
-                z=z,
+        if cm_data and len(cm_data) == len(labels):
+            x_labels = [f'Pred {l}' for l in labels]
+            y_labels = [f'Aktual {l}' for l in labels]
+            
+            fig_cm = ff.create_annotated_heatmap(
+                z=cm_data,
                 x=x_labels,
                 y=y_labels,
                 colorscale='Viridis',
                 showscale=True
             )
-            fig.update_layout(title_text="Perbandingan Prediksi vs Aktual")
-            st.plotly_chart(fig, use_container_width=True)
+            fig_cm.update_layout(height=400, margin=dict(t=50, l=0, r=0, b=0))
+            st.plotly_chart(fig_cm, use_container_width=True)
         else:
-            st.error("Dimensi confusion matrix tidak sesuai.")
-
-        st.caption("Data diambil dari hasil training terakhir.")
+            st.info("Data Confusion Matrix tidak tersedia.")
 
     with col_r:
-        st.subheader("📈 Performa Per Kelas")
-
-        if data and "metrics" in data:
+        st.subheader("📊 Performa Per Kelas (F1-Score)")
+        if data_metrics and "metrics" in data_metrics:
             class_metrics = []
-            for k, v in data["metrics"].items():
+            for k, v in data_metrics["metrics"].items():
                 if k in labels:
                     class_metrics.append({
                         "Kelas": k,
                         "F1-Score": v.get("f1-score", 0)
                     })
-
+            
             if class_metrics:
                 df_metrics = pd.DataFrame(class_metrics)
-                fig2 = px.bar(
+                fig_bar = px.bar(
                     df_metrics,
                     x='Kelas',
                     y='F1-Score',
                     color='Kelas',
-                    range_y=[0, 1],
-                    title="F1-Score per Kelas"
+                    range_y=[0, 1.05],
+                    text_auto='.2f'
                 )
-                st.plotly_chart(fig2, use_container_width=True)
+                st.plotly_chart(fig_bar, use_container_width=True)
             else:
-                st.info("Menunggu data klasifikasi per kelas...")
+                st.info("Data F1-Score per kelas tidak ditemukan.")
         else:
-            dummy = pd.DataFrame({
-                "Kelas": labels,
-                "Probabilitas": [0.0] * len(labels)
-            })
-            fig2 = px.bar(dummy, x="Kelas", y="Probabilitas")
-            st.plotly_chart(fig2, use_container_width=True)
+            st.info("Menunggu data metrics...")
+
+    st.markdown("---")
+    st.markdown("---")
 
     # =====================================================
-    # VALIDASI CNN – ARAH & SUDUT
+    # BAGIAN 2: VALIDASI SPASIAL (ENGINE TERBARU)
+    # Logika Baru: Peta, Sudut, Status Validasi
     # =====================================================
-    if df_val is not None and not df_val.empty:
-        latest = df_val.iloc[-1]
+    st.header("2. Validasi Prediksi Spasial (Real-World)")
+    st.caption("Evaluasi berdasarkan engine v3.3: Membandingkan arah pergerakan gempa prediksi vs aktual.")
 
-        st.markdown("---")
-        st.markdown("### 🧭 Hasil Validasi Prediksi Arah")
+    if df_val is None or df_val.empty:
+        st.warning("⚠️ Belum ada output prediksi dari CNN Engine.")
+        return
 
-        k1, k2, k3, k4 = st.columns(4)
-        k1.metric("Arah Prediksi", latest["arah_prediksi"])
-        k2.metric("Sudut Prediksi", f"{latest['arah_derajat']:.1f}°")
-        k3.metric("Selisih Sudut", f"{latest['selisih_sudut']:.1f}°")
-        k4.metric("Status Validasi", latest["status_validasi"])
+    # Ambil data terbaru
+    latest = df_val.iloc[-1]
 
-        # STATUS RELEVANSI (NON-TEKNIS)
-        if latest["status_validasi"] == "RELEVAN":
-            st.success(
-                f"""
-                ✅ **Prediksi RELEVAN**
-                Gempa aktual terjadi pada arah **{latest['dir_inferred_from_angle']}**
-                dengan selisih sudut **{latest['selisih_sudut']:.1f}°**,
-                masih dalam batas toleransi arah wilayah.
-                """
-            )
-        else:
-            st.error("❌ Prediksi tidak relevan terhadap kejadian aktual.")
+    # --- STATUS BANNER ---
+    status = latest.get("status_validasi", "PENDING")
+    note = latest.get("validasi_note", "-")
+    
+    status_color = "blue"
+    if status == "VALID": status_color = "green"
+    elif status == "MENYIMPANG": status_color = "red"
+    elif status == "PENDING": status_color = "orange"
 
-        # GRAFIK SELISIH SUDUT
-        st.markdown("### 📐 Tren Selisih Sudut Prediksi vs Aktual")
-        st.line_chart(
-            df_val.set_index("timestamp")["selisih_sudut"],
-            height=300
+    st.markdown(
+        f"""
+        <div style="padding: 15px; border-radius: 10px; background-color: rgba(255,255,255,0.05); border-left: 6px solid {status_color};">
+            <h3 style="margin:0; color:{status_color};">STATUS: {status}</h3>
+            <p style="margin:5px 0 0 0;"><b>Catatan Engine:</b> {note}</p>
+        </div>
+        <br>
+        """, 
+        unsafe_allow_html=True
+    )
+
+    # --- METRIK SPASIAL ---
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Arah Prediksi", latest.get("arah_prediksi", "-"))
+    k2.metric("Sudut (Azimuth)", f"{latest.get('arah_derajat', 0):.1f}°")
+    
+    selisih = latest.get("selisih_sudut", -1)
+    selisih_str = f"{selisih:.1f}°" if selisih != -1 else "Menunggu Data"
+    k3.metric("Selisih vs Aktual", selisih_str)
+    
+    conf = float(latest.get("confidence_scalar", 0.0)) * 100
+    k4.metric("Confidence", f"{conf:.1f}%")
+
+    # --- PETA VISUALISASI (Spatial Projection) ---
+    st.subheader("📍 Peta Proyeksi Pergerakan")
+    
+    # Persiapan Data Peta
+    map_data = []
+    
+    # 1. Pusat Gempa (Basis Data / H-1)
+    lat_center = latest.get("ACO_Center_Lat")
+    lon_center = latest.get("ACO_Center_Lon")
+    if pd.notna(lat_center) and pd.notna(lon_center):
+        map_data.append({
+            "lat": lat_center, "lon": lon_center, 
+            "label": "Pusat Gempa (Basis)", "color": "blue", "size": 10
+        })
+
+    # 2. Titik Prediksi (Hasil Proyeksi Sudut & Jarak)
+    lat_proj = latest.get("proj_target_lat")
+    lon_proj = latest.get("proj_target_lon")
+    dist_proj = latest.get("proj_distance_km", 0)
+    
+    if pd.notna(lat_proj) and pd.notna(lon_proj):
+        map_data.append({
+            "lat": lat_proj, "lon": lon_proj, 
+            "label": f"Prediksi (Est. {dist_proj}km)", "color": "orange", "size": 12
+        })
+
+    if map_data:
+        df_map = pd.DataFrame(map_data)
+        fig_map = px.scatter_mapbox(
+            df_map, lat="lat", lon="lon", color="label", size="size",
+            color_discrete_map={"Pusat Gempa (Basis)": "blue", f"Prediksi (Est. {dist_proj}km)": "orange"},
+            zoom=6, mapbox_style="open-street-map",
+            title="Visualisasi Arah Pergerakan (Basis -> Prediksi)"
         )
+        
+        # Garis Imajiner
+        if len(df_map) >= 2:
+            fig_map.add_trace(go.Scattermapbox(
+                mode="lines",
+                lon=[lon_center, lon_proj], lat=[lat_center, lat_proj],
+                line=dict(width=2, color='orange', dash='dot'),
+                name="Arah Azimuth"
+            ))
+            
+        st.plotly_chart(fig_map, use_container_width=True)
+    else:
+        st.info("Koordinat visualisasi tidak tersedia.")
 
-        # INTERPRETASI OTOMATIS
-        st.markdown("### 🧠 Interpretasi Sistem")
-        st.info(
-            f"""
-            Model CNN memprediksi arah gempa dominan ke **{latest['arah_prediksi']}**
-            dengan sudut **{latest['arah_derajat']:.1f}°**.
-            Validasi menunjukkan selisih sudut **{latest['selisih_sudut']:.1f}°**,
-            sehingga prediksi dinilai **{latest['status_validasi']}**
-            berdasarkan pendekatan kesesuaian arah wilayah.
-            """
-        )
-
-        # DETAIL TEKNIS
-        with st.expander("📄 Detail Teknis Validasi CNN"):
-            st.dataframe(
-                df_val[
-                    [
-                        "timestamp",
-                        "arah_prediksi",
-                        "arah_derajat",
-                        "alt_sampling_1_angle",
-                        "selisih_sudut",
-                        "confidence_scalar",
-                        "akurasi_prediksi_persen",
-                        "validasi_note"
-                    ]
-                ],
-                use_container_width=True
-            )
-
+    # --- DETAIL TEKNIS ---
+    with st.expander("🔍 Detail Sampling & Data Mentah"):
+        c_tech1, c_tech2 = st.columns(2)
+        with c_tech1:
+            st.markdown("**Sampling Kandidat (Search Engine):**")
+            st.write(f"- Alt Sampling 1 (Angle): {latest.get('alt_sampling_1_angle', '-')}")
+            st.write(f"- Alt Sampling 1 (Diff): {latest.get('alt_sampling_1_diff', '-')}")
+        with c_tech2:
+             st.markdown("**Parameter Validasi:**")
+             st.write("- Threshold Sudut: 60°")
+             st.write("- Threshold Jarak: 50 km")
 
 if __name__ == "__main__":
     main()
