@@ -1342,6 +1342,8 @@ class CNNEngine:
                 except Exception as e:
                     self.logger.error(f"Error saving CSV: {e}")
 
+
+
             # Update variabel akhir
             final_pred_arah = pred_arah
             final_pred_sudut = pred_sudut
