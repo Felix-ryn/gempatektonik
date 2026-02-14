@@ -8,7 +8,7 @@ import sys
 import os
 from pathlib import Path
 
-# --- KONFIGURASI HALAMAN ---
+# -- KONFIGURASI HALAMAN --
 st.set_page_config(page_title="TectonicAI Command Center", layout="wide", page_icon="🌋")
 
 # --- 1. SETUP PATH SYSTEM ---
