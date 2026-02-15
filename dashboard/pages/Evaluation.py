@@ -7,7 +7,7 @@ import json
 import os
 
 st.set_page_config(page_title="System Evaluation", layout="wide", page_icon="✅")
-
+ 
 # 1. LOAD METRICS JSON (General System Health / Training Result)
 def load_real_metrics():
     """Membaca file JSON hasil output training (metrics, confusion matrix)."""
@@ -49,7 +49,7 @@ def load_cnn_validation():
 # MAIN DASHBOARD
 # =========================================================
 def main():
-    st.title("✅ Evaluasi Sistem & Validasi Model")
+    st.title("Evaluasi Sistem & Validasi Model")
     
     # Load Data
     data_metrics = load_real_metrics()
