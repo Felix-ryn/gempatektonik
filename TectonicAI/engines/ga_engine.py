@@ -579,6 +579,7 @@ class GAExporter:
                 max_width=340,
             )
 
+
             folium.PolyLine(
                 [[snap_start_lat, snap_start_lon], [snap_end_lat, snap_end_lon]],
                 color="#00ffcc",
