@@ -62,11 +62,13 @@ def _load_injection_file(path: str) -> pd.DataFrame:
         
         if "Tanggal" in df.columns:
             df["Tanggal"] = pd.to_datetime(df["Tanggal"], errors="coerce")
-            cutoff = datetime.now() - timedelta(days=90)
+            cutoff = datetime.now() - timedelta(days=365)
             df = df[df["Tanggal"] >= cutoff]
             df.sort_values("Tanggal", inplace=True)
             
-        logger.info(f"[INJECTION] Loaded {len(df)} record(s) from injection file (<=90 hari).")
+        logger.info(
+            f"[INJECTION] Loaded {len(df)} record(s) from injection file (<=365 hari)."
+        )
         return df.reset_index(drop=True)
     except Exception as e:
         logger.error(f"[INJECTION] Failed reading injection file: {e}")
@@ -80,7 +82,7 @@ def _archive_old_data(df: pd.DataFrame, base_dir: str) -> pd.DataFrame:
     os.makedirs(archive_dir, exist_ok=True)
     df_proc = df.copy()
     df_proc["Tanggal"] = pd.to_datetime(df_proc["Tanggal"], errors="coerce")
-    cutoff = datetime.now() - timedelta(days=90)
+    cutoff = datetime.now() - timedelta(days=365)
     mask_old = df_proc["Tanggal"] < cutoff
     df_old = df_proc[mask_old]
     df_recent = df_proc[~mask_old].copy() 
@@ -95,6 +97,18 @@ def _archive_old_data(df: pd.DataFrame, base_dir: str) -> pd.DataFrame:
             logger.error(f"[ARCHIVE] Failed to archive data: {e}")
             
     df_recent.reset_index(drop=True, inplace=True)
+    if len(df_recent) < 500:
+        logger.warning(
+            f"[ARCHIVE] Data recent hanya {len(df_recent)} rows. "
+            "Mempertahankan 500 data terakhir."
+        )
+
+        df_recent = (
+            df_proc
+            .sort_values("Tanggal")
+            .tail(500)
+            .copy()
+        )
     return df_recent
 
 def _manage_live_history_data(config: Dict[str, Any]) -> pd.DataFrame:
@@ -180,9 +194,13 @@ class TectonicOrchestrator:
         df_static_context = _load_static_context_data(self.config)
         
         if df_historys_train.empty:
-            self.logger.critical("[ORCH] Historys (Live Buffer) kosong. Pipeline Aborted.")
-            summary["pipeline_status"] = "failed_no_live_data"
-            return pd.DataFrame(), summary
+
+            self.logger.warning(
+                "[ORCH] Live history kosong. "
+                "Menggunakan static context sebagai fallback."
+            )
+
+            df_historys_train = df_static_context.copy()
             
         # --- Fusion untuk Feature Engineering (Memastikan Konteks FE Lengkap) ---
         df_static_context['Data_Source'] = 'STATIC_CONTEXT'
@@ -216,10 +234,12 @@ class TectonicOrchestrator:
         # 1. Tentukan Test Index (Selalu baris terakhir dari data Historys)
         if n_history_live == 0:
             test_idx = pd.Index([])
+
         elif n_history_live == 1:
             test_idx = df_history_only.index
+
         else:
-            test_idx = df_history_only.index[:]
+            test_idx = df_history_only.index[-1:]
 
         # 2. Train Index: Semua Index yang BUKAN Test Index
         all_indices = df_dynamic.index

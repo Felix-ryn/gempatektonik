@@ -169,3 +169,29 @@ def update_dataset_with_realtime(df_old, path_to_save, df_injection=None):
         df_clean = df_combined
 
     return df_clean
+if __name__ == "__main__":
+
+    import json
+
+    url = "https://data.bmkg.go.id/DataMKG/TEWS/gempaterkini.json"
+
+    r = requests.get(url, timeout=15)
+    r.raise_for_status()
+
+    data = r.json()
+
+    print("=== ROOT JSON ===")
+    print(data.keys())
+
+    print("\n=== INFO GEMPA ===")
+    print(data["Infogempa"].keys())
+
+    print("\n=== SAMPLE EVENT ===")
+
+    sample = data["Infogempa"]["gempa"][0]
+
+    print(json.dumps(
+        sample,
+        indent=2,
+        ensure_ascii=False
+    ))
