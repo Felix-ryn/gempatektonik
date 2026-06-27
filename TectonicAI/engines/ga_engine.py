@@ -970,6 +970,7 @@ class GAEngine:
         except Exception as e:
             self.logger.error(f"[GA] Gagal menulis ga_summary.json: {e}")
 
+
         return df, {
             "vector_data": (
                 self.history_log[-1] if self.history_log else None
