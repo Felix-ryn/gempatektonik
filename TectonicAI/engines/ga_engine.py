@@ -92,6 +92,25 @@ class GeodesicKernel:
         brng = math.degrees(math.atan2(y, x))
         return (brng + 360.0) % 360.0
     
+    @staticmethod
+    def angle_to_direction(angle):
+        """
+        Konversi bearing (0–360°) menjadi 4 arah mata angin utama.
+        """
+
+        angle = angle % 360
+
+        if angle >= 315 or angle < 45:
+            return "Utara"
+
+        elif angle >= 45 and angle < 135:
+            return "Timur"
+
+        elif angle >= 135 and angle < 225:
+            return "Selatan"
+
+        else:
+            return "Barat"
 
 # ==========================================
 # 2. EVOLUTIONARY DATA STRUCTURES
@@ -374,7 +393,7 @@ class GAExporter:
         # TINGGALKAN HISTORY ASLI
         df = pd.DataFrame(history)
 
-        # 🚨 FIX KRITIS: Pastikan Kunci Prediksi Ada, Jika Tidak Ada di History, Tambahkan Fallback
+        # FIX KRITIS: Pastikan Kunci Prediksi Ada, Jika Tidak Ada di History, Tambahkan Fallback
 
         # Tambahkan kolom-kolom yang diharapkan Dashboard Generator jika hilang
         if "Pred_Lat" not in df.columns:
@@ -383,7 +402,10 @@ class GAExporter:
             df["Pred_Lon"] = df.get("End_Lon", np.nan)
         if "Angle_Deg" not in df.columns:
             df["Angle_Deg"] = df.get("Angle", np.nan)
-
+        if "Direction" not in df.columns:
+            df["Direction"] = df["Angle_Deg"].apply(
+                GeodesicKernel.angle_to_direction
+            )
         # Tambahkan Is_Best (diperkirakan hilang karena GA tidak menemukan Global Best)
         if "Is_Best" not in df.columns:
             # Karena Global Best Fit selalu nan, kita set semua False atau hanya yang terakhir True
@@ -903,23 +925,40 @@ class GAEngine:
                 snap_time = sig_reset.loc[snap_end_pos, "Tanggal"]
 
                 snap_event = sig_reset.loc[snap_end_pos]
-                
+
                 self.history_log.append({
+
                     "Generation": gen,
+
                     "Timestamp": snap_time,
+
                     "Start_Lat": g.lat,
                     "Start_Lon": g.lon,
+
                     "End_Lat": e_lat,
                     "End_Lon": e_lon,
+
                     "Angle": g.angle,
+                    "Angle_Deg": g.angle,
+
+                    "Direction": GeodesicKernel.angle_to_direction(g.angle),
                     "Distance": g.dist,
+
                     "Fitness": global_best_ind.fitness,
+
                     "GA_Confidence": ga_confidence,
-                    "Snap_Start_Idx": snap_start_orig_index,
-                    "Snap_End_Idx": snap_end_orig_index,
+
+                    "Magnitudo": snap_event["Magnitudo"],
+
+                    "Kedalaman_km": snap_event[
+                        "Kedalaman_km"
+                    ],
+
                     "Event_Time": snap_event["Tanggal"],
+
                     "Event_Lat": snap_event["Lintang"],
-                    "Event_Lon": snap_event["Bujur"],
+
+                    "Event_Lon": snap_event["Bujur"]
                 })
 
             # LOG PROGRESS

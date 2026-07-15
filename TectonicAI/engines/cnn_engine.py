@@ -11,8 +11,15 @@ import time
 import matplotlib.pyplot as plt
 import seaborn as sns
 import uuid
-from math import radians, sin, cos, atan2, degrees
-
+from math import (
+    radians,
+    sin,
+    cos,
+    atan2,
+    degrees,
+    asin,
+    sqrt
+)
 # [FIX] Tambahkan Type Hinting yang diperlukan
 from typing import Optional, Dict, List, Any, Tuple
 
@@ -725,7 +732,74 @@ class CNNEngine:
 
         return df
 
+    def _load_validation_2025(self):
 
+        from TectonicAI.config import CONFIG
+
+        path = CONFIG["paths"]["validation_2025_data"]
+
+        if not os.path.exists(path):
+            self.logger.error(
+                f"Validation file tidak ditemukan : {path}"
+            )
+            return pd.DataFrame()
+
+        # =========================================================
+        # LOAD RAW BMKG JANUARI 2025
+        # =========================================================
+
+        df = pd.read_csv(path)
+
+        df.rename(columns={
+            "Tanggal": "timestamp",
+            "Lintang": "Event_Lat",
+            "Bujur": "Event_Lon"
+        }, inplace=True)
+
+        df["timestamp"] = pd.to_datetime(
+            df["timestamp"],
+            errors="coerce",
+            utc=True
+        ).dt.tz_localize(None)
+
+        # =========================================================
+        # ESTIMASI RADIUS IMPACT
+        # =========================================================
+
+        if "Magnitudo" in df.columns:
+
+            df["Context_Impact_Radius"] = (
+                df["Magnitudo"]
+                .fillna(3.0)
+                .clip(lower=2.0)
+                * 20.0
+            )
+
+        else:
+
+            df["Context_Impact_Radius"] = 50.0
+
+        # =========================================================
+        # HISTORY FEATURE
+        # =========================================================
+
+        df = self._inject_history_features(df)
+
+        df.sort_values(
+            "timestamp",
+            inplace=True
+        )
+
+        df.reset_index(
+            drop=True,
+            inplace=True
+        )
+
+        self.logger.info(
+            f"Validation 2025 Loaded : {len(df)} event."
+        )
+
+        return df
     def _haversine_km(self, lon1, lat1, lon2, lat2):
         """Return distance in kilometers between two (lon,lat)."""
         # handle missing
@@ -773,149 +847,216 @@ class CNNEngine:
         out_csv: str = None
     ) -> pd.DataFrame:
         """
-        Validasi prediksi yang ada di CSV terhadap kejadian aktual tahun 2025.
-        - df_main: dataframe sumber event (harus mengandung kolom timestamp dan, bila tersedia, lat/lon)
-        - pred_csv: path ke CSV prediksi (fallback ke self.paths["cnn_prediction_out"])
-        - time_window_days: jangka waktu setelah basis_data_terakhir untuk mencari match
-        - angle_threshold: ambang selisih sudut (degrees) untuk dikatakan match
-        - distance_km_threshold: (optional) ambang jarak (km) antara pusat prediksi & actual
-        - out_csv: path untuk menyimpan hasil validasi (default ke cnn_results/validation_2025.csv)
-        Returns dataframe hasil validasi.
+        Validasi hasil prediksi CNN menggunakan data aktual Januari 2025.
         """
+
         pred_csv = pred_csv or self.paths.get("cnn_prediction_out")
+
         if pred_csv is None or not os.path.exists(pred_csv):
-            self.logger.error(f"Validation aborted: pred CSV not found at {pred_csv}")
+            self.logger.error(f"Validation aborted: prediction CSV tidak ditemukan -> {pred_csv}")
             return pd.DataFrame()
 
-        pred_df = pd.read_csv(pred_csv, encoding='utf-8-sig').fillna("")
-        # Ensure datetime parsing
-        if 'basis_data_terakhir' in pred_df.columns:
-            pred_df['basis_data_terakhir'] = pd.to_datetime(pred_df['basis_data_terakhir'], errors='coerce')
+        # ==========================================================
+        # LOAD PREDICTION CSV
+        # ==========================================================
+
+        pred_df = pd.read_csv(pred_csv, encoding="utf-8-sig").fillna("")
+
+        if "basis_data_terakhir" in pred_df.columns:
+            pred_df["basis_data_terakhir"] = pd.to_datetime(
+                pred_df["basis_data_terakhir"],
+                errors="coerce"
+            )
         else:
-            pred_df['basis_data_terakhir'] = pd.to_datetime(pred_df.get('timestamp', pd.NaT), errors='coerce')
+            pred_df["basis_data_terakhir"] = pd.to_datetime(
+                pred_df.get("timestamp"),
+                errors="coerce"
+            )
 
-        pred_df['pred_angle'] = pd.to_numeric(pred_df.get('arah_derajat', pred_df.get('angle', 0.0)), errors='coerce')
-        pred_df['prediction_id'] = pred_df.get('prediction_id', [str(uuid.uuid4()) for _ in range(len(pred_df))])
+        pred_df["pred_angle"] = pd.to_numeric(
+            pred_df.get("arah_derajat"),
+            errors="coerce"
+        ).fillna(0)
 
-        # Load main events if not provided
-        if df_main is None or df_main.empty:
-            df_main = self._load_lstm_bridge()
-        if df_main is None or df_main.empty:
-            self.logger.error("Validation aborted: no main event dataframe available.")
-            return pd.DataFrame()
+        if "prediction_id" not in pred_df.columns:
+            pred_df["prediction_id"] = [
+                str(uuid.uuid4())
+                for _ in range(len(pred_df))
+            ]
 
-        # Normalize timestamp column
-        if 'timestamp' not in df_main.columns:
-            # try known alternatives
-            for alt in ['time', 'Tanggal']:
-                if alt in df_main.columns:
-                    df_main['timestamp'] = pd.to_datetime(df_main[alt], errors='coerce')
-                    break
-        else:
-            df_main['timestamp'] = pd.to_datetime(df_main['timestamp'], errors='coerce')
+        # ==========================================================
+        # LOAD DATA VALIDASI JANUARI 2025
+        # ==========================================================
 
-        # Filter only 2025 events (atau > cutoff)
-        df_proc = self._inject_history_features(df_main)
-        cutoff = pd.Timestamp("2024-12-31 23:59:59")
-        test_df = df_proc[df_proc['timestamp'] > cutoff].copy()
+        test_df = self._load_validation_2025()
+
         if test_df.empty:
-            self.logger.info("No 2025 events found in provided data (test_df empty).")
-        # prepare lat/lon columns if available
-        lat_col = None
-        lon_col = None
-        for c in ['ACO_center_x','center_x','latitude','lat','x','Lintang']:
-            if c in df_proc.columns:
-                lat_col = c
-                break
-        for c in ['ACO_center_y','center_y','longitude','long','lon','y','Bujur']:
-            if c in df_proc.columns:
-                lon_col = c
-                break
+            self.logger.warning("Validation dataset Januari 2025 kosong.")
+            return pd.DataFrame()
 
         results = []
+
+        # ==========================================================
+        # LOOP SELURUH PREDIKSI
+        # ==========================================================
+
         for _, prow in pred_df.iterrows():
-            pid = prow.get('prediction_id', str(uuid.uuid4()))
-            base_date = prow.get('basis_data_terakhir', pd.NaT)
-            pred_angle = float(prow.get('pred_angle', 0.0) if not pd.isna(prow.get('pred_angle')) else 0.0)
 
-            # Candidate selection: events after basis_date up to window, fallback whole 2025
-            if not pd.isna(base_date):
-                start = base_date
-                end = base_date + pd.Timedelta(days=int(time_window_days))
-                candidates = test_df[(test_df['timestamp'] >= start) & (test_df['timestamp'] <= end)].copy()
-            else:
+            base_date = prow["basis_data_terakhir"]
+
+            if pd.isna(base_date):
                 candidates = test_df.copy()
+            else:
+                candidates = test_df[
+                    (test_df["timestamp"] >= base_date) &
+                    (test_df["timestamp"] <= base_date + pd.Timedelta(days=time_window_days))
+                ].copy()
 
-            best = None
-            best_diff = 999.0
-            best_dist = None
-
-            # If no candidates in window, expand to whole 2025
             if candidates.empty:
                 candidates = test_df.copy()
 
+            pred_angle = float(prow["pred_angle"])
+
+            pred_lat = prow.get("ACO_Center_Lat")
+            pred_lon = prow.get("ACO_Center_Lon")
+
+            best_row = None
+            best_diff = 999.0
+            best_dist = None
+
             for _, act in candidates.iterrows():
-                actual_angle = float(act.get('Arah_Derajat', act.get('angle', 0.0)) or 0.0)
-                diff = self._angle_diff(pred_angle, actual_angle)
-                dist_km = None
-                if lat_col and lon_col:
-                    # get lon/lat of prediction (use basis row values if stored in pred CSV: check 'basis_lat' etc.)
-                    # Try to extract lat/lon from act row for distance
-                    try:
-                        # If pred CSV stored center coords, use them; otherwise we only compute dist between pred basis coords and actual coords is not possible.
-                        pred_lat = prow.get('ACO_center_x', prow.get('center_x', None))
-                        pred_lon = prow.get('ACO_center_y', prow.get('center_y', None))
-                        act_lat = act.get(lat_col)
-                        act_lon = act.get(lon_col)
-                        if pred_lat not in [None, "", "nan"] and pred_lon not in [None, "", "nan"]:
-                            dist_km = self._haversine_km(float(pred_lon), float(pred_lat), float(act_lon), float(act_lat))
-                        else:
-                            # If pred lat/lon not available, set dist None or compute 0
-                            dist_km = None
-                    except Exception:
-                        dist_km = None
+
+                actual_angle = bearing_deg(
+                    pred_lat,
+                    pred_lon,
+                    act["Event_Lat"],
+                    act["Event_Lon"]
+                )
+
+                diff = self._angle_diff(
+                    pred_angle,
+                    actual_angle
+                )
+
+                dist = None
+
+                try:
+                    dist = self._haversine_km(
+                        pred_lon,
+                        pred_lat,
+                        act["Event_Lon"],
+                        act["Event_Lat"]
+                    )
+                except Exception:
+                    pass
 
                 if diff < best_diff:
                     best_diff = diff
-                    best = act
-                    best_dist = dist_km
+                    best_row = act
+                    best_dist = dist
 
             match_flag = False
-            if best is not None and best_diff <= float(angle_threshold):
-                if distance_km_threshold is None:
-                    match_flag = True
-                else:
-                    if best_dist is not None and best_dist <= float(distance_km_threshold):
-                        match_flag = True
-                    else:
-                        match_flag = False
 
-            result_row = {
-                "prediction_id": pid,
-                "pred_basis_date": base_date,
-                "pred_angle": pred_angle,
-                "best_match_timestamp": best.get('timestamp') if best is not None else pd.NaT,
-                "best_match_angle": float(best.get('Arah_Derajat', best.get('angle', float('nan')))) if best is not None else None,
-                "angle_diff_deg": float(best_diff) if best is not None else None,
-                "best_match_distance_km": float(best_dist) if best_dist is not None else None,
-                "match_flag": bool(match_flag),
-                "search_window_days": int(time_window_days),
-                "angle_threshold_deg": float(angle_threshold),
-                "distance_threshold_km": float(distance_km_threshold) if distance_km_threshold is not None else None
-            }
-            results.append(result_row)
+            if best_row is not None:
+
+                if distance_km_threshold is None:
+
+                    match_flag = (
+                        best_diff <= angle_threshold
+                    )
+
+                else:
+
+                    match_flag = (
+                        best_diff <= angle_threshold
+                        and
+                        best_dist is not None
+                        and
+                        best_dist <= distance_km_threshold
+                    )
+
+            results.append({
+
+                "prediction_id":
+                    prow["prediction_id"],
+
+                "pred_basis_date":
+                    base_date,
+
+                "pred_angle":
+                    pred_angle,
+
+                "best_match_timestamp":
+                    best_row["timestamp"] if best_row is not None else None,
+
+                "best_match_angle":
+                    bearing_deg(
+                        pred_lat,
+                        pred_lon,
+                        best_row["Event_Lat"],
+                        best_row["Event_Lon"]
+                    ) if best_row is not None else None,
+
+                "angle_diff_deg":
+                    best_diff if best_row is not None else None,
+
+                "best_match_distance_km":
+                    best_dist,
+
+                "actual_event_lat":
+                    best_row["Event_Lat"] if best_row is not None else None,
+
+                "actual_event_lon":
+                    best_row["Event_Lon"] if best_row is not None else None,
+
+                "actual_magnitude":
+                    best_row["Magnitudo"] if best_row is not None else None,
+
+                "actual_depth":
+                    best_row["Kedalaman_km"] if best_row is not None else None,
+
+                "match_flag":
+                    match_flag,
+
+                "search_window_days":
+                    time_window_days,
+
+                "angle_threshold_deg":
+                    angle_threshold,
+
+                "distance_threshold_km":
+                    distance_km_threshold
+            })
 
         valid_df = pd.DataFrame(results)
 
-        # save
+        # ==========================================================
+        # SAVE CSV
+        # ==========================================================
+
         if out_csv is None:
-            out_csv = os.path.join(os.path.dirname(self.paths.get("cnn_prediction_out",".")), "validation_2025.csv")
-        try:
-            os.makedirs(os.path.dirname(out_csv), exist_ok=True)
-            valid_df.to_csv(out_csv, index=False, encoding='utf-8-sig')
-            self.logger.info(f"Validation saved to {out_csv}")
-        except Exception as e:
-            self.logger.error(f"Failed to save validation CSV: {e}")
+
+            out_csv = os.path.join(
+                os.path.dirname(
+                    self.paths["cnn_prediction_out"]
+                ),
+                "validation_2025.csv"
+            )
+
+        os.makedirs(
+            os.path.dirname(out_csv),
+            exist_ok=True
+        )
+
+        valid_df.to_csv(
+            out_csv,
+            index=False,
+            encoding="utf-8-sig"
+        )
+
+        self.logger.info(
+            f"Validation berhasil disimpan -> {out_csv}"
+        )
 
         return valid_df
 
@@ -940,27 +1081,37 @@ class CNNEngine:
         # Pastikan kolom timestamp ada
         if 'timestamp' not in df_proc.columns:
             df_proc['timestamp'] = pd.date_range(start='2022-01-01', periods=len(df_proc), freq='D')
+        
+        # ====================================================
+        # TRAINING DATA
+        # ====================================================
 
-        # --------------------------------------------------------
-        # 2. SMART SPLIT LOGIC
-        # --------------------------------------------------------
-        max_date = df_proc['timestamp'].max()
-        has_2025 = max_date.year >= 2025
+        cutoff_date = pd.Timestamp("2024-12-31 23:59:59")
 
-        if has_2025:
-            cutoff_date = pd.Timestamp("2024-12-31 23:59:59")
-            self.logger.info("CNN SCENARIO: Data 2025 Terdeteksi. Mode Validasi: Train 2022-2024 -> Test 2025.")
-        else:
-            cutoff_date = pd.Timestamp("2023-12-31 23:59:59")
-            self.logger.info("CNN SCENARIO: Data 2025 Kosong. Mode Fallback: Train 2022-2023 -> Test 2024.")
+        train_df = df_proc[
+            df_proc["timestamp"] <= cutoff_date
+        ].copy()
 
-        train_df = df_proc[df_proc['timestamp'] <= cutoff_date].copy()
-        test_df = df_proc[df_proc['timestamp'] > cutoff_date].copy()
+        self.logger.info(
+            f"Training CNN memakai {len(train_df)} data (2022-2024)"
+        )
 
-        if len(train_df) < 5:
-            self.logger.warning("CNN WARN: Data training terlalu sedikit (<5). Pakai semua data.")
-            train_df = df_proc.copy()
-            test_df = pd.DataFrame()
+        # ====================================================
+        # VALIDATION DATA
+        # ====================================================
+
+        test_df = self._load_validation_2025()
+
+        self.logger.info(
+            f"Validation memakai {len(test_df)} event Januari 2025"
+        )
+
+        if train_df.empty:
+            self.logger.error("Training Data kosong.")
+            return df_main
+
+        if test_df.empty:
+            self.logger.warning("Validation 2025 kosong.")
 
         # --------------------------------------------------------
         # 3. TRAINING PHASE
@@ -1101,7 +1252,17 @@ class CNNEngine:
             validation_note = "Menunggu Data Masa Depan"
             diff_angle = -1.0
             status_validasi = "PENDING"
-            PROJ_DISTANCE_KM = 150.0   # asumsi konservatif (WAJIB dijelaskan di laporan)
+            PROJ_DISTANCE_KM = float(
+
+            row_data.get(
+
+            "Context_Impact_Radius",
+
+            150
+
+            )
+
+            )   # asumsi konservatif (WAJIB dijelaskan di laporan)
             SPATIAL_RADIUS_KM = 50.0   # radius wilayah target
 
             # =====================================================
@@ -1117,26 +1278,42 @@ class CNNEngine:
             best_row = None
             closest_candidates = []
 
-            # ---------------------------------
-            # 1. WINDOW-BASED SAMPLING
-            # ---------------------------------
+            # ====================================================
+            # WINDOW VALIDATION
+            # ====================================================
+
             base_time = row_data.get("timestamp")
 
-            if "timestamp" in test_df.columns and base_time is not None:
-                candidates_df = test_df[
-                    (test_df["timestamp"] >= base_time) &
-                    (test_df["timestamp"] <= base_time + pd.Timedelta(days=window_days))
-                ]
-            else:
+            if pd.isna(base_time):
+
                 candidates_df = test_df.copy()
 
+            else:
+
+                start_time = base_time
+
+                end_time = base_time + pd.Timedelta(days=30)
+
+                candidates_df = test_df[
+                    (test_df["timestamp"] >= start_time)
+                    &
+                    (test_df["timestamp"] <= end_time)
+                ].copy()
+
             if candidates_df.empty:
+
+
+                self.logger.warning(
+                    "Tidak ada event pada window 30 hari, "
+                    "menggunakan seluruh data Januari 2025."
+                )
+
                 candidates_df = test_df.copy()
 
             # ---------------------------------
             # 2. SAFETY GUARD: KOORDINAT WAJIB
             # ---------------------------------
-            required_cols = {"ACO_center_x", "ACO_center_y"}
+            required_cols = {"Event_Lat", "Event_Lon"}
 
             if not required_cols.issubset(candidates_df.columns):
                 self.logger.warning("VALIDATION SKIPPED: Koordinat event 2025 tidak lengkap.")
@@ -1166,14 +1343,18 @@ class CNNEngine:
                         actual_sudut = bearing_deg(
                             row_data["ACO_center_x"],
                             row_data["ACO_center_y"],
-                            actual_event["ACO_center_x"],
-                            actual_event["ACO_center_y"]
+                            actual_event["Event_Lat"],
+                            actual_event["Event_Lon"]
                         )
 
                         dist_km = self._haversine_km(
-                            proj_lat, proj_lon,
-                            actual_event["ACO_center_x"],
-                            actual_event["ACO_center_y"]
+
+                            proj_lon,
+                            proj_lat,
+
+                            actual_event["Event_Lon"],
+                            actual_event["Event_Lat"]
+
                         )
                     except Exception:
                         continue
@@ -1191,8 +1372,48 @@ class CNNEngine:
                         best_diff = diff
                         best_row = actual_event
 
-                    if diff <= threshold_angle and dist_km is not None and dist_km <= spatial_radius_km:
+                    # ====================================================
+                    # VALIDATION SCORE
+                    # ====================================================
+
+                    mag_diff = abs(
+
+                        row_data.get("Magnitudo",0)
+
+                        -
+
+                        actual_event.get("Magnitudo",0)
+
+                    )
+
+                    depth_diff = abs(
+
+                        row_data.get("Kedalaman_km",0)
+
+                        -
+
+                        actual_event.get("Kedalaman_km",0)
+
+                    )
+
+                    score = 0
+
+                    if diff <= threshold_angle:
+                        score += 40
+
+                    if dist_km is not None and dist_km <= spatial_radius_km:
+                        score += 30
+
+                    if mag_diff <= 1.0:
+                        score += 20
+
+                    if depth_diff <= 30:
+                        score += 10
+
+                    if score >= 70:
+
                         found = True
+
                         break
 
                 # ---------------------------------
@@ -1280,7 +1501,30 @@ class CNNEngine:
                         ),
 
                         "sumber": "SimpleCNN_SmartBackfill",
-                        "consistency_flag": consistency_flag
+                        "consistency_flag": consistency_flag,
+
+                        # ===========================
+                        # DATA GROUND TRUTH 2025
+                        # ===========================
+                        "actual_event_lat": (
+                            best_row.get("Event_Lat")
+                            if best_row is not None
+                            else None
+                        ),
+
+                        "actual_event_lon": (
+                            best_row.get("Event_Lon")
+                            if best_row is not None
+                            else None
+                        ),
+
+                        "actual_magnitude": (
+                            best_row.get("Magnitudo") if best_row is not None else None
+                        ),
+
+                        "actual_depth": (
+                            best_row.get("Kedalaman_km") if best_row is not None else None
+                        ),
                     }
 
 
@@ -1326,12 +1570,18 @@ class CNNEngine:
                     output_df = pd.DataFrame([new_data])
 
                     file_exists = os.path.exists(out_path)
+
                     output_df.to_csv(
-                        out_path,
-                        mode='w',        
-                        header=True,       
-                        index=False,
-                        encoding='utf-8-sig'
+
+                    out_path,
+
+                    mode="w",
+
+                    header=True,
+
+                    index=False,
+
+                    encoding="utf-8-sig"
                     )
 
 
@@ -1370,6 +1620,24 @@ class CNNEngine:
             df_main.at[idx_row, "CNN_Validasi_Msg"] = validation_note
 
 
+        # =====================================================
+        # VALIDASI OTOMATIS TERHADAP DATA RAW JANUARI 2025
+        # =====================================================
+
+        try:
+            self.validate_predictions_2025(
+                df_main=df_proc
+            )
+            self.logger.info(
+                "Validation 2025 selesai."
+            )
+
+        except Exception as e:
+            self.logger.error(
+                f"Validation gagal: {e}"
+            )
+
         self.logger.info("CNN PREDICTION: Selesai memproses batch prediksi (Backfill/Realtime).")
 
         return df_main
+            

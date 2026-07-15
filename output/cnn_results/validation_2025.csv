@@ -1,0 +1,2 @@
+﻿prediction_id,pred_basis_date,pred_angle,best_match_timestamp,best_match_angle,angle_diff_deg,best_match_distance_km,actual_event_lat,actual_event_lon,actual_magnitude,actual_depth,match_flag,search_window_days,angle_threshold_deg,distance_threshold_km
+73a05131-9dd2-486e-8253-3a32103cab26,2026-06-27 14:47:21,194.9811673164368,2025-01-21 18:10:09.893939,22.89808614937607,172.08308116706075,383.9670294065701,-5.776835918426514,112.5097427368164,3.098701077131746,5.0,False,30,60.0,

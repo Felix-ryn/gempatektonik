@@ -21,6 +21,7 @@ CONFIG = {
     "paths": {
         "static_baseline_data": str(DATA_DIR / "Tectonic_Earthquake_data.csv"),
         "live_history_data": str(DATA_DIR / "Tectonic_Earthquake_live_history.csv"),
+        "validation_2025_data": str(DATA_DIR / "tectonic_earthquake_live_history_2025.csv"),
         "injection_file": str(DATA_DIR / "data_injection.xlsx"),
         "assets_dir": str(ASSETS_DIR),
         "output_base": str(OUTPUT_DIR)
