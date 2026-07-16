@@ -111,13 +111,13 @@ class TransformerBlock(Layer):
 
         self.att = MultiHeadAttention(num_heads=num_heads, key_dim=embed_dim)
         self.ffn = tf.keras.Sequential([
-            Dense(ff_dim, activation="relu"),
+            Dense(ff_dim, activation="relu"),  # Layer ekstraksi fitur non-linear
             Dense(embed_dim),
         ])
         self.layernorm1 = LayerNormalization(epsilon=1e-6)
         self.layernorm2 = LayerNormalization(epsilon=1e-6)
-        self.dropout1 = Dropout(rate)
-        self.dropout2 = Dropout(rate)
+        self.dropout1 = Dropout(rate)  # Dropout; naik=mengurangi overfitting namun bisa menurunkan akurasi
+        self.dropout2 = Dropout(rate)  # Dropout; naik=mengurangi overfitting namun bisa menurunkan akurasi
 
     def get_config(self):
         config = super().get_config()
@@ -167,11 +167,11 @@ class LSTMEngine:
         self.logger.setLevel(logging.INFO)
 
         # --- HYPERPARAMETERS ---
-        self.seq_length = int(self.lstm_cfg.get('sequence_length', 15))
-        self.epochs = int(self.lstm_cfg.get('epochs', 50))
-        self.units = int(self.lstm_cfg.get('units', 64))
-        self.base_threshold = float(self.lstm_cfg.get('anomaly_threshold_std', 2.5))
-        self.mc_samples = int(self.lstm_cfg.get('mc_samples', 20))
+        self.seq_length = int(self.lstm_cfg.get('sequence_length', 15))  # Panjang sequence; naik=memori lebih panjang namun training lebih berat
+        self.epochs = int(self.lstm_cfg.get('epochs', 50))  # Epoch training; naik=belajar lebih lama namun berpotensi overfitting
+        self.units = int(self.lstm_cfg.get('units', 64))  # Jumlah neuron LSTM; naik=model lebih kompleks
+        self.base_threshold = float(self.lstm_cfg.get('anomaly_threshold_std', 2.5))  # Ambang anomali; naik=anomali lebih sedikit
+        self.mc_samples = int(self.lstm_cfg.get('mc_samples', 20))  # Monte Carlo sample; naik=uncertainty lebih stabil namun lebih lambat
 
         self.model: Optional[Model] = None
 
@@ -421,9 +421,9 @@ class LSTMEngine:
         # Transformer block
         transformer_out = TransformerBlock(
             embed_dim=input_shape[-1],
-            num_heads=self.transformer_heads if hasattr(self, 'transformer_heads') else 4,
-            ff_dim=self.transformer_ff_dim if hasattr(self, 'transformer_ff_dim') else 32,
-            rate=self.dropout_rate if hasattr(self, 'dropout_rate') else 0.1
+            num_heads=self.transformer_heads if hasattr(self, 'transformer_heads') else 4,  # Jumlah attention head; naik=hubungan fitur lebih kaya,
+            ff_dim=self.transformer_ff_dim if hasattr(self, 'transformer_ff_dim') else 32,  # Ukuran feed-forward Transformer,
+            rate=self.dropout_rate if hasattr(self, 'dropout_rate') else 0.1  # Dropout Transformer
         )(inputs)
 
         # BiLSTM
@@ -447,7 +447,7 @@ class LSTMEngine:
 
         model = Model(inputs=inputs, outputs=outputs, name='Hybrid_Transformer_LSTM')
 
-        opt = Adam(learning_rate=0.001, clipnorm=1.0)
+        opt = Adam(learning_rate=0.001, clipnorm=1.0)  # Learning rate kecil=stabil; besar=cepat tapi bisa tidak konvergen
         model.compile(optimizer=opt, loss='huber', metrics=['mae', 'mse'])
 
         return model
@@ -698,7 +698,7 @@ class LSTMEngine:
         # --- STEP 4: Training Phase --- #
         if len(X_train) > 20:
             cb = [
-                EarlyStopping(patience=6, restore_best_weights=True),
+                EarlyStopping(patience=6, restore_best_weights=True),  # Hentikan training jika tidak membaik,
                 ReduceLROnPlateau(factor=0.5, patience=3, verbose=0),
                 ModelCheckpoint(self.paths['model_file'], save_best_only=True, verbose=0),
                 CSVLogger(os.path.join(self.paths['logs_dir'], 'training.log'), append=True),

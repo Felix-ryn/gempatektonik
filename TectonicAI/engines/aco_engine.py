@@ -22,11 +22,11 @@ from folium.plugins import HeatMap
 from typing import List, Dict, Any, Tuple, Optional, Union
 
 # --- KONSTANTA ---
-R_EARTH_KM = 6371.0
-EPSILON = 1e-12
-DEFAULT_PHEROMONE = 0.1
-MAX_PHEROMONE = 10.0
-MIN_PHEROMONE = 0.01
+R_EARTH_KM = 6371.0  # Radius bumi (km) untuk rumus haversine
+EPSILON = 1e-12  # Nilai kecil agar tidak terjadi pembagian 0
+DEFAULT_PHEROMONE = 0.1  # Feromon awal; lebih besar = eksplorasi awal lebih kuat
+MAX_PHEROMONE = 10.0  # Batas maksimum feromon agar tidak terlalu dominan
+MIN_PHEROMONE = 0.01  # Batas minimum feromon agar jalur tidak hilang
 
 # ==========================================
 # 1. GEO UTILITIES
@@ -181,14 +181,14 @@ class ACOEngine:
         self.stagnation_counter: int = 0
 
     def _load_parameters(self):
-        self.n_ants = int(self.aco_cfg.get('n_ants', 50))
-        self.n_iterations = int(self.aco_cfg.get('n_iterations', 100))
-        self.n_steps = int(self.aco_cfg.get('n_epicenters', 20))
-        self.alpha_base = float(self.aco_cfg.get('alpha', 1.0))
-        self.beta_base = float(self.aco_cfg.get('beta', 2.0))
-        self.rho_base = float(self.aco_cfg.get('evaporation_rate', 0.1))
-        self.Q = float(self.aco_cfg.get('pheromone_deposit', 100.0))
-        self.risk_threshold = float(self.aco_cfg.get('risk_threshold', 0.7))
+        self.n_ants = int(self.aco_cfg.get('n_ants', 50))  # Jumlah semut; naik=lebih akurat tapi lebih lambat
+        self.n_iterations = int(self.aco_cfg.get('n_iterations', 100))  # Iterasi; naik=konvergensi lebih baik namun waktu lebih lama
+        self.n_steps = int(self.aco_cfg.get('n_epicenters', 20))  # Langkah tiap semut; naik=jelajah lebih luas
+        self.alpha_base = float(self.aco_cfg.get('alpha', 1.0))  # Bobot feromon; naik=lebih mengikuti jalur lama
+        self.beta_base = float(self.aco_cfg.get('beta', 2.0))  # Bobot heuristik; naik=lebih mengikuti kualitas node
+        self.rho_base = float(self.aco_cfg.get('evaporation_rate', 0.1))  # Evaporasi; naik=lupa jalur lama lebih cepat
+        self.Q = float(self.aco_cfg.get('pheromone_deposit', 100.0))  # Deposit feromon; naik=jalur terbaik cepat menguat
+        self.risk_threshold = float(self.aco_cfg.get('risk_threshold', 0.7))  # Ambang zona; naik=zona terdampak makin selektif
 
     def _initialize_colony(self, n_nodes: int):
         self.colony = []
@@ -413,45 +413,60 @@ class ACOEngine:
     # ACO NUMERIC SUMMARY (WEIGHTED CENTER & IMPACT)
     # ==========================================
         try:
-            # === WEIGHTED CENTROID BERDASARKAN PHEROMONE ===
-            pher = np.asarray(df_out['Pheromone_Score'].fillna(0.0).astype(float))
+            # ==========================================
+            # LOCAL ACO CENTER (SETIAP EVENT BERBEDA)
+            # ==========================================
+
+            pher = np.asarray(
+                df_out['Pheromone_Score']
+                .fillna(0.0)
+                .astype(float)
+            )
+
             lats = np.asarray(df_out['Lintang'].astype(float))
             lons = np.asarray(df_out['Bujur'].astype(float))
 
-            if pher.sum() > 0:
-                center_lat = float(np.sum(lats * pher) / pher.sum())
-                center_lon = float(np.sum(lons * pher) / pher.sum())
-            else:
-                # fallback aman
-                center_lat = float(lats.mean())
-                center_lon = float(lons.mean())
+            aco_center_lat = []
+            aco_center_lon = []
+            aco_radius = []
 
-            # === HITUNG RADIUS DAMPAK BERDASARKAN JARAK TERJAUH ===
-            def _haversine_scalar_array(lat_arr, lon_arr, lat_c, lon_c):
-                lat1 = np.radians(lat_arr)
-                lon1 = np.radians(lon_arr)
-                lat2 = np.radians(lat_c)
-                lon2 = np.radians(lon_c)
-                dlat = lat2 - lat1
-                dlon = lon2 - lon1
-                a = np.sin(dlat / 2.0)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon / 2.0)**2
-                c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
-                return 6371.0 * c
+            for i in range(len(df_out)):
 
-            dists = _haversine_scalar_array(lats, lons, center_lat, center_lon)
-            impact_radius_km = float(np.max(dists))
-            impact_area_km2 = math.pi * (impact_radius_km ** 2)
+                # Bobot pheromone
+                p = pher[i]
 
-            # === SIMPAN KE DF (PENTING UNTUK LSTM) ===
-            df_out['ACO_Center_Lat'] = center_lat
-            df_out['ACO_Center_Lon'] = center_lon
-            df_out['ACO_Impact_Radius_km'] = impact_radius_km
+                # Offset maksimum sekitar ±1 km
+                offset = (p - 0.5) * 0.02
 
-            # === SIMPAN SUMMARY JSON ===
+                local_center_lat = lats[i] + offset
+                local_center_lon = lons[i] + offset
+
+                # Radius mengikuti Radius_Visual
+                local_radius = (
+                    df_out.iloc[i]["Radius_Visual_KM"]
+                    *
+                    (1 + (p * 0.20))
+                )
+
+                aco_center_lat.append(local_center_lat)
+                aco_center_lon.append(local_center_lon)
+                aco_radius.append(local_radius)
+
+            df_out["ACO_Center_Lat"] = aco_center_lat
+            df_out["ACO_Center_Lon"] = aco_center_lon
+            df_out["ACO_Impact_Radius_km"] = aco_radius
+
+            # Summary global tetap dibuat
+            global_center_lat = float(np.mean(aco_center_lat))
+            global_center_lon = float(np.mean(aco_center_lon))
+            global_radius = float(np.max(aco_radius))
+
+            impact_area_km2 = math.pi * (global_radius ** 2)
+
             aco_summary = {
-                "center_latitude": round(center_lat, 6),
-                "center_longitude": round(center_lon, 6),
-                "impact_radius_km": round(impact_radius_km, 2),
+                "center_latitude": round(global_center_lat, 6),
+                "center_longitude": round(global_center_lon, 6),
+                "impact_radius_km": round(global_radius, 2),
                 "impact_area_km2": round(impact_area_km2, 2),
                 "total_events": int(len(df_out))
             }
@@ -521,22 +536,21 @@ class ACOEngine:
         try:
             center = [df['Lintang'].mean(), df['Bujur'].mean()]
             m = folium.Map(location=center, zoom_start=7, tiles='CartoDB positron')
-            m.save(self.output_paths['aco_impact_html'])
             self.logger.info(f"Visual ACO Tersimpan dan Ditimpa: {self.output_paths['aco_impact_html']}")
 
             # === LOOP untuk setiap episenter ===
             for _, r in df.iterrows():
 
                 # radius KM → meter
-                radius_km = float(r['Radius_Visual_KM'])
+                radius_km = float(r["ACO_Impact_Radius_km"])
                 radius_km = min(radius_km, 20)
-                radius_m = radius_km * 100
+                radius_m = radius_km * 1000
 
                 lokasi = r.get('Lokasi', '-')
                 tanggal = r.get('Tanggal', '-')
                 mag = r.get('Magnitudo', r.get('Magnitudo_Original', '-'))
                 depth = r.get('Kedalaman', r.get('Kedalaman_km', '-'))
-                rad = round(r['Radius_Visual_KM'], 2)
+                rad = round(r['ACO_Impact_Radius_km'], 2)
 
                 popup_html = f"""
                 <b>Lokasi:</b> {lokasi}<br>
@@ -550,7 +564,7 @@ class ACOEngine:
 
                 # === CIRCLE ZONA ===
                 folium.Circle(
-                    location=[r['Lintang'], r['Bujur']],
+                    location=[r["ACO_Center_Lat"], r["ACO_Center_Lon"]],
                     radius=radius_m,
                     color='orange',
                     fill=True,
@@ -561,7 +575,7 @@ class ACOEngine:
 
                 # === TITIK PUSAT EPISENTER ===
                 folium.CircleMarker(
-                    location=[r['Lintang'], r['Bujur']],
+                    location=[r["ACO_Center_Lat"], r["ACO_Center_Lon"]],
                     radius=1,
                     color='Red',
                     fill=True,
@@ -570,7 +584,7 @@ class ACOEngine:
 
                 # === TITIK PUSAT AREA DAMPAK (ACO CENTER) ===
                 folium.Marker(
-                    location=[df['Lintang'].mean(), df['Bujur'].mean()],
+                    location=[df["ACO_Center_Lat"].mean(), df["ACO_Center_Lon"].mean()],
                     popup=folium.Popup(
                         f"""
                         <b>Pusat Area Terdampak (ACO)</b><br>

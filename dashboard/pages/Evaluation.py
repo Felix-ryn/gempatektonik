@@ -218,12 +218,18 @@ def main():
         
         # Garis Imajiner
         if len(df_map) >= 2:
-            fig_map.add_trace(go.Scattermapbox(
-                mode="lines",
-                lon=[lon_center, lon_proj], lat=[lat_center, lat_proj],
-                line=dict(width=2, color='orange', dash='dot'),
-                name="Arah Azimuth"
-            ))
+            fig_map.add_trace(
+                go.Scattermapbox(
+                    mode="lines",
+                    lon=[lon_center, lon_proj],
+                    lat=[lat_center, lat_proj],
+                    line=dict(
+                        color="orange",
+                        width=2
+                    ),
+                    name="Arah Azimuth"
+                )
+            )
             
         st.plotly_chart(fig_map, use_container_width=True)
     else:

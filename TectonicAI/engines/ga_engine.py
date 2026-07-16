@@ -17,14 +17,14 @@ import folium
 from typing import List, Dict, Any, Tuple, Optional
 
 # --- GLOBAL CONSTANTS ---
-R_EARTH_KM = 6371.0
-EPSILON = 1e-9
+R_EARTH_KM = 6371.0  # Radius bumi (km) untuk perhitungan geodesi
+EPSILON = 1e-9  # Nilai kecil agar tidak terjadi pembagian nol
 
 # Batas fokus Jawa Timur (approx)
-EJ_MIN_LAT = -8.8
-EJ_MAX_LAT = -6.5
-EJ_MIN_LON = 111.0
-EJ_MAX_LON = 114.6
+EJ_MIN_LAT = -8.8  # Batas minimum lintang area Jawa Timur
+EJ_MAX_LAT = -6.5  # Batas maksimum lintang area Jawa Timur
+EJ_MIN_LON = 111.0  # Batas minimum bujur area Jawa Timur
+EJ_MAX_LON = 114.6  # Batas maksimum bujur area Jawa Timur
 
 # Setup Logger
 logger = logging.getLogger("GA_Titan_Engine")
@@ -238,8 +238,8 @@ class PopulationIsland:
         self.cfg = config
         self.bounds = bounds
         self.evaluator = evaluator
-        self.pop_size = int(config.get("population_size", 100))
-        self.mutation_rate = float(config.get("mutation_rate", 0.05))
+        self.pop_size = int(config.get("population_size", 100))  # Populasi; naik=lebih akurat tetapi lebih lambat
+        self.mutation_rate = float(config.get("mutation_rate", 0.05))  # Mutasi; naik=eksplorasi besar namun solusi kurang stabil
 
         self.population: List[Individual] = []
         self.best_individual: Optional[Individual] = None
@@ -313,7 +313,7 @@ class PopulationIsland:
     def _crossover_blend(
         self, p1: Individual, p2: Individual
     ) -> Tuple[Individual, Individual]:
-        alpha = 0.5
+        alpha = 0.5  # Faktor BLX-alpha; naik=anak lebih bervariasi
         g1 = p1.genome.to_array()
         g2 = p2.genome.to_array()
 
@@ -704,13 +704,13 @@ class GAEngine:
         self.logger.setLevel(logging.DEBUG)
 
         # Load Params
-        self.n_islands = int(self.ga_cfg.get("n_islands", 4))
-        self.migration_interval = int(self.ga_cfg.get("migration_interval", 10))
-        self.migration_rate = float(self.ga_cfg.get("migration_rate", 0.1))
-        self.mag_threshold = float(self.ga_cfg.get("magnitude_threshold", 5.0))
-        self.generations = int(self.ga_cfg.get("generations", 200))
-        self.pop_size = int(self.ga_cfg.get("population_size", 100))
-        self.mutation_rate = float(self.ga_cfg.get("mutation_rate", 0.05))
+        self.n_islands = int(self.ga_cfg.get("n_islands", 4))  # Jumlah island; naik=keragaman meningkat tetapi komputasi bertambah
+        self.migration_interval = int(self.ga_cfg.get("migration_interval", 10))  # Interval migrasi; kecil=lebih sering bertukar individu
+        self.migration_rate = float(self.ga_cfg.get("migration_rate", 0.1))  # Persentase migran; besar=penyebaran solusi lebih cepat
+        self.mag_threshold = float(self.ga_cfg.get("magnitude_threshold", 5.0))  # Ambang magnitudo data
+        self.generations = int(self.ga_cfg.get("generations", 200))  # Jumlah generasi; naik=peluang solusi optimal meningkat
+        self.pop_size = int(self.ga_cfg.get("population_size", 100))  # Ukuran populasi GA
+        self.mutation_rate = float(self.ga_cfg.get("mutation_rate", 0.05))  # Laju mutasi; naik=eksplorasi naik namun konvergensi lebih sulit
 
         # Paths
         base_path = os.path.abspath(

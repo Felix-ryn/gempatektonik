@@ -39,32 +39,32 @@ class EvaluationEngine:
         self.logger.setLevel(logging.INFO)
 
         # --- ENSEMBLE BASE MODELS (Fungsi Penting) ---
-        self.nb = CalibratedClassifierCV(GaussianNB(), method='sigmoid')
+        self.nb = CalibratedClassifierCV(GaussianNB(), method='sigmoid')  # Kalibrasi probabilitas Naive Bayes)
 
         self.rf = RandomForestClassifier(
-            n_estimators=150,
-            max_depth=12,
-            class_weight="balanced",
-            random_state=42
+            n_estimators=150,  # Jumlah pohon; naik=akurasi lebih baik namun training lebih lama
+            max_depth=12,  # Kedalaman pohon; naik=lebih kompleks namun berisiko overfitting
+            class_weight="balanced",  # Menyeimbangkan kelas tidak seimbang
+            random_state=42  # Seed agar hasil konsisten
         )
 
         self.gb = GradientBoostingClassifier(
-            n_estimators=60,
-            learning_rate=0.1,
+            n_estimators=60,  # Jumlah boosting stage; naik=akurasi meningkat namun lebih lambat
+            learning_rate=0.1,  # Learning rate; naik=lebih cepat namun kurang stabil
             max_depth=3,
-            random_state=42
+            random_state=42  # Seed agar hasil konsisten
         )
 
         self.ensemble = VotingClassifier(
             estimators=[("nb", self.nb), ("rf", self.rf), ("gb", self.gb)],
-            voting="soft",
-            weights=[1, 2, 1]
+            voting="soft",  # Voting berdasarkan probabilitas model
+            weights=[1, 2, 1]  # Bobot Voting; RF diberi pengaruh terbesar
         )
 
-        self.evaluator_name = "Naive Bayes"
+        self.evaluator_name = "Naive Bayes"  # Model utama evaluator
 
-        self.scaler = StandardScaler()
-        self.encoder = LabelEncoder()
+        self.scaler = StandardScaler()  # Standarisasi fitur agar skala seragam
+        self.encoder = LabelEncoder()  # Mengubah label teks menjadi angka
 
         base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../output"))
         self.paths = {
@@ -75,7 +75,7 @@ class EvaluationEngine:
         }
 
         # Fix label order
-        self.fixed_labels = ["RINGAN", "SEDANG", "PARAH"]
+        self.fixed_labels = ["RINGAN", "SEDANG", "PARAH"]  # Urutan label tetap untuk evaluasi
         self.encoder.fit(self.fixed_labels) # Menggunakan encoder untuk mapping 0, 1, 2
 
     # ---------------------------------------------------------
@@ -105,7 +105,7 @@ class EvaluationEngine:
         if len(unique) >= 2:
             return X_train, y_train_encoded
 
-        rare_class = 2  # PARAH (Label 2)
+        rare_class = 2  # Label PARAH sintetis agar training tidak gagal  # PARAH (Label 2)
         synthetic_X = np.mean(X_train, axis=0, keepdims=True)
         synthetic_X = np.tile(synthetic_X, (5, 1))
         synthetic_y = np.full(5, rare_class)
@@ -396,7 +396,7 @@ class EvaluationEngine:
                     from sklearn.calibration import CalibratedClassifierCV
                     # Tentukan CV yang aman
                     cv_folds = min(len(X_train_std) // 2, 5)
-                    calib_rf = CalibratedClassifierCV(self.rf, method='sigmoid', cv=max(2, cv_folds))
+                    calib_rf = CalibratedClassifierCV(self.rf, method='sigmoid', cv=max(2, cv_folds))  # Kalibrasi probabilitas Naive Bayes
                     calib_rf.fit(X_train_std, y_train)
                     successful_classifier = calib_rf
                 else:

@@ -23,9 +23,9 @@ try:
     from tensorflow.keras.models import Model, load_model
     from tensorflow.keras.layers import Input, LSTM, Dense
     from tensorflow.keras.optimizers import Adam
-    HAS_TF = True
+    HAS_TF = True  # TensorFlow tersedia sehingga LSTM dapat dijalankan
 except ImportError:
-    HAS_TF = False
+    HAS_TF = False  # TensorFlow tidak tersedia, engine berjalan tanpa training
 
 PROJECT_ROOT = os.path.dirname(
     os.path.dirname(
@@ -113,9 +113,9 @@ class DirectionDeviationLSTMEngine:
     
     def __init__(
         self,
-        seq_len: int = 2,
-        angle_threshold: float = 30.0,
-        dir_threshold: float = 2.0,
+        seq_len: int = 2,  # Panjang sequence; naik=memori temporal lebih panjang
+        angle_threshold: float = 30.0,  # Ambang deviasi sudut; naik=anomali lebih sedikit
+        dir_threshold: float = 2.0,  # Ambang deviasi arah; naik=lebih toleran
         model_path: str = 'direction_deviation_lstm.keras'
     ):
         self.seq_len = seq_len
@@ -219,13 +219,13 @@ class DirectionDeviationLSTMEngine:
     # --------------------------------------------------------
     def _build_model(self, input_shape: Tuple[int, int]) -> Model:
         inp = Input(shape=input_shape)
-        x = LSTM(32, activation='tanh')(inp)
-        out = Dense(1, activation='sigmoid')(x)
+        x = LSTM(32, activation='tanh')  # 32 neuron; naik=kapasitas model meningkat namun lebih lambat(inp)
+        out = Dense(1, activation='sigmoid')  # Output biner anomali (0-1)(x)
         model = Model(inp, out)
-        model.compile(optimizer=Adam(learning_rate=0.001), loss='binary_crossentropy', metrics=['accuracy'])
+        model.compile(optimizer=Adam(learning_rate=0.001), loss='binary_crossentropy', metrics=['accuracy']) # Learning rate; kecil=stabil, besar=lebih cepat namun berisiko gagal konvergen, loss='binary_crossentropy', metrics=['accuracy'])
         return model
 
-    def train(self, df: pd.DataFrame, epochs: int = 20, batch_size: int = 16):
+    def train(self, df: pd.DataFrame, epochs: int = 20, batch_size: int = 16):  # Epoch training; naik=model belajar lebih lama, batch_size: int = 16  # Batch size; besar=lebih cepat namun membutuhkan RAM lebih besar):
         if not HAS_TF: return
         
         # Reset index
@@ -408,7 +408,7 @@ class DirectionDeviationLSTMEngine:
         # =========================================================
         # SOLUSI: GENERATE 1000 BARIS DATA RIIL (2022-2024)
         # =========================================================
-        TARGET_ROWS = 1000
+        TARGET_ROWS = 1000  # Target jumlah data historis hasil augmentasi
         
         # Cek jika data kurang, kita lakukan augmentasi (Backfill history)
         if len(df_base) < TARGET_ROWS and not df_base.empty:
