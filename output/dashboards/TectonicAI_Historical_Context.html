@@ -17,7 +17,7 @@
             <meta name="viewport" content="width=device-width,
                 initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
             <style>
-                #map_4ff804a8eb466c0acbd76055eee556a9 {
+                #map_d818ca520eb8cb84b43c3d1e9543b767 {
                     position: relative;
                     width: 100.0%;
                     height: 100.0%;
@@ -70,14 +70,14 @@
     </div>
     
     
-            <div class="folium-map" id="map_4ff804a8eb466c0acbd76055eee556a9" ></div>
+            <div class="folium-map" id="map_d818ca520eb8cb84b43c3d1e9543b767" ></div>
         
 </body>
 <script>
     
     
-            var map_4ff804a8eb466c0acbd76055eee556a9 = L.map(
-                "map_4ff804a8eb466c0acbd76055eee556a9",
+            var map_d818ca520eb8cb84b43c3d1e9543b767 = L.map(
+                "map_d818ca520eb8cb84b43c3d1e9543b767",
                 {
                     center: [-7.904738600290929, 113.33547659815525],
                     crs: L.CRS.EPSG3857,
@@ -94,7 +94,7 @@
 
         
     
-            var tile_layer_e60ea8756d1fa7eff091b205882f0090 = L.tileLayer(
+            var tile_layer_5ad74280ae02d27b7399c7e39781dbd2 = L.tileLayer(
                 "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
                 {
   "minZoom": 0,
@@ -111,15 +111,15 @@
             );
         
     
-            tile_layer_e60ea8756d1fa7eff091b205882f0090.addTo(map_4ff804a8eb466c0acbd76055eee556a9);
+            tile_layer_5ad74280ae02d27b7399c7e39781dbd2.addTo(map_d818ca520eb8cb84b43c3d1e9543b767);
         
     
-            var tile_layer_a744da4ba78ab62a909b18104c0ecbe7 = L.tileLayer(
+            var tile_layer_057f13d0e266da03178266272cb93a8c = L.tileLayer(
                 "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
                 {"attribution": "\u0026copy; \u003ca href=\"https://www.openstreetmap.org/copyright\"\u003eOpenStreetMap\u003c/a\u003e contributors", "detect_retina": false, "max_native_zoom": 19, "max_zoom": 19, "min_zoom": 0, "no_wrap": false, "opacity": 1, "subdomains": "abc", "tms": false}
             );
-            var mini_map_e54ba251b535be22453482c60045bbd5 = new L.Control.MiniMap(
-                tile_layer_a744da4ba78ab62a909b18104c0ecbe7,
+            var mini_map_efefc3a8965cf42ecf61193c50721bb9 = new L.Control.MiniMap(
+                tile_layer_057f13d0e266da03178266272cb93a8c,
                 {
   "position": "bottomright",
   "width": 150,
@@ -134,10 +134,10 @@
   "minimized": false,
 }
             );
-            map_4ff804a8eb466c0acbd76055eee556a9.addControl(mini_map_e54ba251b535be22453482c60045bbd5);
+            map_d818ca520eb8cb84b43c3d1e9543b767.addControl(mini_map_efefc3a8965cf42ecf61193c50721bb9);
         
     
-            var mouse_position_c943b7b7d196c859f0b6c0067ae2728b = new L.Control.MousePosition(
+            var mouse_position_7529f2440e856aa34c605815590ec814 = new L.Control.MousePosition(
                 {
   "position": "bottomright",
   "separator": " : ",
@@ -147,14 +147,14 @@
   "prefix": "",
 }
             );
-            mouse_position_c943b7b7d196c859f0b6c0067ae2728b.options["latFormatter"] =
+            mouse_position_7529f2440e856aa34c605815590ec814.options["latFormatter"] =
                 undefined;
-            mouse_position_c943b7b7d196c859f0b6c0067ae2728b.options["lngFormatter"] =
+            mouse_position_7529f2440e856aa34c605815590ec814.options["lngFormatter"] =
                 undefined;
-            map_4ff804a8eb466c0acbd76055eee556a9.addControl(mouse_position_c943b7b7d196c859f0b6c0067ae2728b);
+            map_d818ca520eb8cb84b43c3d1e9543b767.addControl(mouse_position_7529f2440e856aa34c605815590ec814);
         
     
-            var heat_map_f757dd013a76b4780df17310c19f8243 = L.heatLayer(
+            var heat_map_aba015cd0478d441d3838619b4dc7b19 = L.heatLayer(
                 [[-8.31224824542495, 114.45857109982, 6.36], [-8.24099984505498, 114.310835500597, 3.11], [-8.04973281783166, 113.144822528616, 3.5], [-8.20508932312526, 113.146121197955, 6.89], [-7.63260634542054, 112.935539924638, 3.91], [-8.01672909617421, 112.584491897223, 6.04], [-8.03326096222411, 112.718315282419, 3.13], [-7.98441541723684, 112.611537808589, 5.08], [-7.67149909065529, 113.158975508487, 3.95], [-8.17489705474898, 114.434219986103, 2.84], [-8.22480833225016, 114.288091012592, 7.24], [-7.65969931611937, 113.300233198188, 2.9], [-7.23137535316963, 111.890180045648, 4.6], [-8.22090776609026, 113.154237894083, 3.26], [-8.31091964801501, 114.372905878561, 2.36], [-8.16560214088768, 114.363256148393, 7.83], [-6.26196122218998, 113.050395698879, 6.4], [-8.10126834400769, 113.148737890046, 5.11], [-7.68068702708692, 112.858057877734, 7.1], [-8.03754100991675, 113.138294674966, 5.05], [-8.19432495487409, 114.320102412246, 5.41], [-8.04293968448938, 113.194449584755, 2.88], [-8.28309998430131, 114.355949905955, 2.66], [-8.27853689086939, 114.288029390324, 6.41], [-7.57691654866014, 112.945893670958, 6.57], [-7.65958316071723, 112.88554772783, 7.69], [-7.67073020743024, 113.259360935599, 2.7], [-7.98235949442294, 113.491685257373, 7.35], [-8.20493165188666, 113.159634664226, 6.89], [-7.74318461923738, 111.960039458387, 5.02], [-7.6107482846504, 112.996775784185, 6.07], [-7.8056032766755, 113.147195480727, 6.09], [-7.68963778008018, 113.241935292306, 7.67], [-7.8516799653048, 113.26644560639, 5.4], [-8.17798784749049, 113.19731061262, 2.58], [-7.58958668413766, 112.946553273534, 3.06], [-8.27434103813851, 114.309464778972, 7.78], [-8.14876543312734, 113.174120426178, 5.7], [-6.7154189163955, 111.797501823287, 4.85], [-6.55578635656229, 112.466312691641, 5.66], [-7.69967345724732, 112.8679974674, 2.3], [-8.23368195003247, 114.42609974951, 5.72], [-8.23768168322726, 114.446166160636, 2.08], [-8.17852399939498, 113.231877432275, 4.69], [-7.84717176645441, 113.29595097962, 2.9], [-7.73466310654954, 113.211124448387, 2.89], [-7.69999353766588, 113.287254487192, 3.08], [-8.10776829535491, 113.257414173033, 6.57], [-8.04948799741268, 113.144594970583, 5.78], [-8.08413515879402, 113.271995485271, 3.43], [-7.65447707076653, 113.257768715041, 2.76], [-7.41633118726415, 112.980613926147, 2.33], [-8.22990353756686, 113.200346980543, 4.98], [-8.1701078561312, 113.127145276034, 5.17], [-8.23225051595958, 114.399170295757, 2.38], [-8.3092943993288, 114.421191582821, 3.85], [-7.72798488195653, 113.147246274993, 4.18], [-7.74308556374729, 113.200312033796, 7.46], [-8.0480536296369, 113.179893542093, 3.69], [-7.76692639243492, 113.226310261631, 2.28], [-7.97169960826388, 112.583798718875, 7.6], [-7.66609123183312, 113.288904667558, 2.49], [-7.02514514991692, 112.073646808022, 3.27], [-7.72901510822155, 113.274886850443, 4.39], [-7.92829487673434, 112.587719248509, 6.04], [-7.82799586781602, 113.288249898377, 3.75], [-8.30545429092483, 114.358615122356, 2.93], [-8.06553125027313, 113.309978383738, 3.29], [-7.71692065812137, 113.303319823591, 2.6], [-6.74793034052991, 113.507314895041, 6.13], [-8.09450971088906, 113.230002531883, 5.98], [-8.11235832732736, 113.739582539416, 3.39], [-7.55316147922617, 112.832817074088, 3.48], [-8.2608681124557, 114.321979166344, 2.17], [-8.24295009382502, 114.389522450717, 4.0], [-8.22894377278686, 114.384208120721, 2.67], [-7.8410186274842, 112.93830361909, 4.97], [-7.1333430242726, 113.305072178301, 2.4], [-8.03976581970817, 113.140460253062, 5.97], [-8.20978593423421, 114.403311330246, 6.43], [-8.2050727549937, 113.250627625357, 3.49], [-7.92636746194408, 112.714466833498, 7.13], [-8.05046190656698, 113.175531605083, 6.27], [-7.83895246265335, 113.261606406217, 3.89], [-7.84725001763621, 113.15540192657, 7.48], [-7.7365181484933, 113.267766799203, 7.67], [-8.00378342020284, 112.686834878212, 7.62], [-8.20989391118928, 113.255322003319, 3.57], [-7.569086770795, 112.921678747752, 6.04], [-8.16631043231045, 114.276850717751, 7.37], [-7.94862738030416, 112.577598488544, 7.17], [-7.13960357294498, 113.672576868923, 4.26], [-8.13548135178477, 113.305058268061, 4.93], [-8.17288730497026, 113.237414631609, 3.99], [-8.02172027896355, 112.6027018186, 4.58], [-8.25103182818356, 114.369104466714, 2.94], [-8.18266091010915, 113.267268678002, 8.0], [-8.31385875809354, 114.328944083987, 5.79], [-8.2822922028221, 114.415311840764, 5.83], [-8.05858615915137, 113.28078353709, 7.96], [-7.67412860981732, 113.26270739466, 6.57], [-7.6782209721747, 113.309727439677, 5.9], [-7.98132517658346, 112.724282926427, 6.17], [-7.8308484403748, 113.247253695334, 3.86], [-8.1291278597989, 114.422042955028, 3.97], [-7.73034105441649, 113.250189521062, 2.26], [-8.22765955883253, 113.190149480555, 6.72], [-8.24417376467365, 114.455005204393, 5.25], [-8.18922567018626, 113.137796927139, 6.5], [-8.22015744468902, 114.383904467188, 3.25], [-8.00883060810071, 112.60653568176, 3.45], [-8.1908656040458, 113.296322794489, 6.18], [-7.69631249894289, 113.174834519532, 4.35], [-8.06075328734736, 112.937545718714, 7.56], [-8.3048204039366, 114.34616195448, 3.02], [-7.77100235419654, 113.199445349486, 6.65], [-7.80891064163617, 113.256927947795, 5.29], [-7.80514713706817, 113.265651360931, 3.6], [-8.29810492414918, 114.287782341779, 6.89], [-7.76953616008791, 113.220322048349, 6.04], [-8.1909120796707, 114.459088531391, 4.16], [-7.79886729025554, 113.112441571134, 2.39], [-7.80796819274565, 113.233434797514, 7.39], [-7.6054728839344, 112.972067057656, 2.03], [-7.6512459923505, 112.875142224464, 3.45], [-8.07716195928283, 113.268500239471, 4.8], [-6.44116080054119, 112.868531248396, 7.85], [-8.14850715683388, 114.353670434362, 5.41], [-7.58279706631442, 112.951639456577, 5.18], [-8.22817797473558, 114.356533477543, 5.44], [-7.71903232119467, 112.989875492557, 2.71], [-7.63392783400125, 112.977951509626, 2.67], [-8.21403351777061, 114.427506261647, 7.53], [-8.19444375094794, 114.358024292873, 2.65], [-8.29925399064755, 114.317511044949, 5.57], [-7.68880236734207, 113.227511565635, 2.2], [-8.29607077540753, 114.339813011411, 7.29], [-7.66096276952759, 112.814022506327, 2.56], [-8.08824622307481, 113.235646875702, 3.67], [-7.78103326962817, 113.309674881695, 2.83], [-8.04453688936791, 113.244625987412, 7.51], [-6.43788269178045, 113.49966580509, 7.2], [-8.23813594682785, 114.343796133024, 2.99], [-7.74081116269725, 113.163783793022, 5.21], [-7.96847435113311, 112.567659569803, 7.07], [-7.92273341231074, 112.675234936195, 5.54], [-8.13555789900429, 113.307258756252, 7.06], [-8.29176351815102, 114.431672623856, 6.89], [-7.22841741741348, 112.252277110631, 3.28], [-8.12911026062834, 113.209197099758, 7.26], [-7.8208531884268, 113.178722256308, 3.6], [-8.18012485049725, 113.140260230385, 5.49], [-8.17166204219521, 113.178822586875, 4.81], [-7.61141863733491, 112.864734494436, 5.0], [-8.22817423814932, 114.429680764896, 2.06], [-8.19317847871862, 114.421073298524, 4.62], [-8.29414970922466, 114.297046752989, 5.93], [-8.22271542648195, 113.164101439937, 3.03], [-7.70083206696317, 112.989547727933, 7.29], [-7.72106106847266, 113.116462522977, 6.84], [-7.93817104540665, 112.622793797808, 5.83], [-7.98602567583845, 112.554185252402, 6.87], [-7.97482396981405, 113.248122204541, 4.75], [-7.78234825264143, 113.183675744566, 3.36], [-8.25863581764407, 114.385144723868, 2.29], [-8.10324302458634, 113.295384717996, 5.08], [-7.6735526636673, 113.30488133448, 5.85], [-7.70540595016553, 112.867553847893, 5.07], [-6.86084435899015, 113.003827533364, 3.79], [-6.42419885902083, 113.204930058309, 4.92], [-7.74683390526057, 113.15631218842, 5.02], [-7.79288814480368, 113.171810485618, 2.69], [-8.18186509924861, 113.196053346494, 6.5], [-8.14521268970421, 114.272630294042, 5.11], [-8.06915845346476, 113.122568472325, 7.96], [-7.76385985509935, 112.983444508046, 7.35], [-8.05317947690776, 113.272170757983, 6.78], [-7.85401488528614, 113.21331698309, 2.34], [-7.61999725305054, 112.896346349198, 5.45], [-7.75629529002411, 113.171012932496, 4.02], [-7.75862157779218, 113.254390755964, 7.47], [-8.27103330001871, 114.307324138704, 5.73], [-7.84183122356394, 113.226941646328, 5.3], [-7.56706239545116, 112.933374642536, 3.17], [-8.12360101026128, 113.262242427302, 6.54], [-8.28732327297745, 114.289752688199, 4.64], [-8.18639971158514, 114.342519444053, 3.64], [-8.15479453896295, 113.159548037057, 2.17], [-8.17521121811288, 113.309444186848, 5.17], [-8.22501627391801, 114.298369278976, 5.21], [-8.25673729078774, 114.286267156646, 5.18], [-8.18794410080849, 114.371120097141, 2.84], [-7.74653176199771, 113.125628842325, 6.87], [-8.22228163735597, 114.371184129872, 7.91], [-7.72504609289324, 113.133469202711, 7.66], [-8.15190732744279, 113.315446340191, 6.85], [-7.64369752957968, 112.868861771339, 5.24], [-7.71391241782475, 113.222886710619, 4.09], [-7.56550109183055, 112.995855100137, 5.98], [-7.74781668868475, 113.273845539421, 3.43], [-7.56123677105116, 112.908585049998, 2.72], [-8.17827789628857, 114.385062299631, 7.01], [-8.05767356321912, 113.132954648574, 6.12], [-7.73020344133847, 113.150679837184, 6.45], [-6.38716527683253, 112.952073743676, 5.41], [-8.1244330676936, 114.341903619121, 3.13], [-8.05204542093719, 112.623773120409, 5.02], [-8.07219293136798, 113.205409917932, 4.8], [-8.05907656579098, 112.588249950379, 6.48], [-8.1590172234645, 114.379603661421, 7.33], [-8.00867048048975, 112.728214793859, 2.5], [-6.25008980102634, 113.603096636606, 6.62], [-8.16389397369965, 114.292226005541, 7.77], [-7.70382029795718, 113.175617429671, 5.61], [-8.09310712216281, 113.219583369156, 4.15], [-7.55164839667277, 112.981743156611, 5.26], [-8.09502016640609, 113.227443111315, 6.34], [-8.28744031815459, 114.45520029103, 2.18], [-8.13020396111826, 113.197892084328, 7.87], [-7.96130976003296, 113.291061993489, 4.04], [-8.07473724270244, 113.230520060978, 6.16], [-7.59891523144023, 112.920478338171, 2.07], [-7.59806946166008, 112.987382292044, 4.33], [-8.10343396883211, 113.288954676633, 6.63], [-7.72086787125989, 113.212455868681, 7.5], [-6.39668766435244, 112.516094836529, 6.16], [-8.22506071953066, 113.209106824594, 2.62], [-8.20151911874019, 114.275500157927, 7.79], [-8.1947202890097, 113.230762985505, 6.18], [-7.55648630361825, 112.838266105624, 7.95], [-7.60856541259464, 112.330006247239, 6.11], [-7.72402184495103, 113.230410276053, 4.13], [-7.82221771786088, 113.110607736025, 7.14], [-7.8921539643928, 112.68418484662, 5.66], [-7.63248956164085, 112.850141258906, 4.24], [-8.22822777358915, 113.155131767654, 6.31], [-7.33360384150996, 111.998318962773, 3.84], [-7.87551940573771, 112.563681912937, 2.19], [-7.70798862426457, 113.26736415229, 3.13], [-8.19545252195061, 113.272645109514, 3.67], [-8.20016813502347, 113.272193519116, 5.98], [-7.90414516097151, 112.636337613981, 7.26], [-8.20278542370139, 114.352497053848, 4.25], [-7.72706517031285, 113.140016779369, 4.67], [-8.14808124353029, 114.341487900909, 7.86], [-7.91252512981244, 112.653761322308, 3.83], [-8.27468775803404, 114.321112622953, 7.56], [-8.10535078637458, 113.285179329106, 7.38], [-8.07948607701131, 113.311266641264, 7.87], [-8.17997844654125, 113.198318764535, 5.03], [-8.16856428027305, 113.281330676987, 7.97], [-7.71765366646696, 113.150520750495, 2.3], [-8.12557433138453, 113.67541723605, 7.45], [-8.23853034237658, 114.28550047887, 5.11], [-8.28670580284727, 114.362081795354, 5.28], [-7.70937257445223, 112.968470080823, 4.66], [-8.17908835347228, 114.433765116166, 2.37], [-7.66612271423929, 113.206074152601, 4.94], [-8.13891252787346, 114.317825773831, 5.04], [-8.13032804187311, 113.28495498952, 5.2], [-6.83131576862747, 112.526522737806, 2.08], [-8.21469222305617, 113.187200239169, 3.64], [-8.27957375252644, 114.446001020856, 2.61], [-8.06690489054802, 113.249092340436, 5.36], [-7.92130518067405, 112.692968557218, 3.24], [-7.68955322099077, 112.841206064941, 4.49], [-8.28311405083727, 114.320228357204, 3.83], [-7.8513394777675, 113.115922621385, 3.65], [-7.68978804987499, 112.863369101299, 4.91], [-7.92434030730977, 112.590720660994, 5.47], [-7.70792875288768, 113.174833208414, 7.89], [-7.05556736037575, 112.198507534133, 7.4], [-7.69011190792662, 112.83687610542, 6.52], [-8.28516292276734, 114.287744238592, 2.1], [-8.23378041793514, 114.346329890498, 7.34], [-7.84227172815731, 113.28009271856, 2.9], [-8.12856127377047, 113.258976996502, 6.6], [-8.06254397035834, 113.15906078651, 5.58], [-7.6543838943216, 112.88382571065, 7.49], [-8.19523287775816, 114.306642330107, 3.71], [-7.72400382214643, 113.164748044932, 4.28], [-8.26045585418786, 114.432940929349, 3.4], [-7.71735007203387, 113.280213773177, 2.27], [-7.84575304927396, 113.238248845057, 2.62], [-8.23643113198533, 114.340296467713, 2.01], [-8.14350515208403, 114.448386531689, 3.6], [-7.84842731178557, 113.28466073522, 3.59], [-8.0723825843646, 113.182814858509, 5.25], [-7.9052538740185, 112.618325049606, 2.05], [-7.91824240692357, 112.680431031775, 4.98], [-7.78877554421555, 113.163770385715, 4.31], [-8.18104987948465, 114.31685854905, 8.0], [-7.96717865615366, 112.676865197686, 2.59], [-7.67621294439096, 112.883685730652, 4.36], [-6.55807383117937, 111.901895935793, 7.19], [-6.47596631962812, 112.029096275326, 7.76], [-7.58370957945255, 112.80783558285, 7.83], [-7.77446411441448, 113.293960905519, 3.05], [-8.11415247919076, 113.219132015184, 6.13], [-6.9862290189172, 113.434808658506, 7.01], [-8.12043113059259, 113.141608606381, 2.72], [-8.011813320793, 112.59226414785, 5.26], [-8.1334479045998, 114.353170143032, 4.93], [-8.25207315785293, 114.41187885055, 5.53], [-7.77952586938566, 113.273406641866, 3.45], [-8.28672542723527, 114.297568858109, 3.77], [-7.55296766319888, 112.90266551805, 6.63], [-7.46977069321906, 112.173340618633, 5.49], [-8.10631041552636, 113.120423129748, 7.04], [-8.12873433026756, 114.431222579839, 5.55], [-8.1103159780426, 113.301653394979, 7.71], [-8.21670608204858, 114.323229579359, 6.61], [-7.80713387156007, 113.216430955619, 5.17], [-7.83611622707167, 113.200488908501, 7.01], [-8.15352121026915, 114.422399214057, 6.74], [-7.78783172842415, 113.17687393157, 6.33], [-7.98549623153751, 112.624395970836, 2.21], [-7.68919483195791, 113.157783771569, 7.46], [-7.95506862349275, 112.683322978949, 3.58], [-8.0578149824856, 113.204105795342, 5.15], [-9.35, 111.85, 5.2], [-8.14, 111.33, 5.5], [-8.99, 111.18, 6.4], [-8.96, 111.16, 5.6]],
                 {
   "minOpacity": 0.5,
@@ -165,24 +165,24 @@
             );
         
     
-            heat_map_f757dd013a76b4780df17310c19f8243.addTo(map_4ff804a8eb466c0acbd76055eee556a9);
+            heat_map_aba015cd0478d441d3838619b4dc7b19.addTo(map_d818ca520eb8cb84b43c3d1e9543b767);
         
     
-            var feature_group_b250e5b43ba33c0b81e96c2c4e135f4f = L.featureGroup(
+            var feature_group_dbd634188ac855c46960fb29b6cf2eac = L.featureGroup(
                 {
 }
             );
         
     
-            var circle_marker_529d2c6f7afec6c2a44eeacd097405b1 = L.circleMarker(
-                [-8.16560214088768, 114.363256148393],
-                {"bubblingMouseEvents": true, "color": "#e74c3c", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#e74c3c", "fillOpacity": 0.4, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 11.0, "stroke": true, "weight": 3}
-            ).addTo(feature_group_b250e5b43ba33c0b81e96c2c4e135f4f);
+            var circle_marker_dff4a683fca82923cb30d6c68cd601bb = L.circleMarker(
+                [-8.20508932312526, 113.146121197955],
+                {"bubblingMouseEvents": true, "color": "#e74c3c", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#e74c3c", "fillOpacity": 0.38575527278869765, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 10.715105455773951, "stroke": true, "weight": 3}
+            ).addTo(feature_group_dbd634188ac855c46960fb29b6cf2eac);
         
     
-            circle_marker_529d2c6f7afec6c2a44eeacd097405b1.bindTooltip(
+            circle_marker_dff4a683fca82923cb30d6c68cd601bb.bindTooltip(
                 `<div>
-                     ACO Zone: Terdampak (Pheromone: 1.00)
+                     ACO Zone: Terdampak (Pheromone: 0.96)
                  </div>`,
                 {
   "sticky": true,
@@ -190,29 +190,13 @@
             );
         
     
-            var circle_marker_3b1c27ce3030f85f4718590d170602bf = L.circleMarker(
+            var circle_marker_af6fc96d99f8a22ff70acc5927da1746 = L.circleMarker(
                 [-7.68068702708692, 112.858057877734],
-                {"bubblingMouseEvents": true, "color": "#e74c3c", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#e74c3c", "fillOpacity": 0.3054175250571651, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 9.1083505011433, "stroke": true, "weight": 3}
-            ).addTo(feature_group_b250e5b43ba33c0b81e96c2c4e135f4f);
+                {"bubblingMouseEvents": true, "color": "#e74c3c", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#e74c3c", "fillOpacity": 0.32950683947180776, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 9.590136789436155, "stroke": true, "weight": 3}
+            ).addTo(feature_group_dbd634188ac855c46960fb29b6cf2eac);
         
     
-            circle_marker_3b1c27ce3030f85f4718590d170602bf.bindTooltip(
-                `<div>
-                     ACO Zone: Terdampak (Pheromone: 0.76)
-                 </div>`,
-                {
-  "sticky": true,
-}
-            );
-        
-    
-            var circle_marker_a7b4b11ae7ea26232ff8989bee010af7 = L.circleMarker(
-                [-7.7365181484933, 113.267766799203],
-                {"bubblingMouseEvents": true, "color": "#e74c3c", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#e74c3c", "fillOpacity": 0.32847456869577907, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 9.569491373915582, "stroke": true, "weight": 3}
-            ).addTo(feature_group_b250e5b43ba33c0b81e96c2c4e135f4f);
-        
-    
-            circle_marker_a7b4b11ae7ea26232ff8989bee010af7.bindTooltip(
+            circle_marker_af6fc96d99f8a22ff70acc5927da1746.bindTooltip(
                 `<div>
                      ACO Zone: Terdampak (Pheromone: 0.82)
                  </div>`,
@@ -222,15 +206,15 @@
             );
         
     
-            var circle_marker_621d022d0be309e0955a76454c762256 = L.circleMarker(
-                [-7.67412860981732, 113.26270739466],
-                {"bubblingMouseEvents": true, "color": "#e74c3c", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#e74c3c", "fillOpacity": 0.3473315269183625, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 9.946630538367248, "stroke": true, "weight": 3}
-            ).addTo(feature_group_b250e5b43ba33c0b81e96c2c4e135f4f);
+            var circle_marker_c5e0868fc97c7fa38848620f863477c3 = L.circleMarker(
+                [-7.68963778008018, 113.241935292306],
+                {"bubblingMouseEvents": true, "color": "#e74c3c", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#e74c3c", "fillOpacity": 0.30138590675637145, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 9.02771813512743, "stroke": true, "weight": 3}
+            ).addTo(feature_group_dbd634188ac855c46960fb29b6cf2eac);
         
     
-            circle_marker_621d022d0be309e0955a76454c762256.bindTooltip(
+            circle_marker_c5e0868fc97c7fa38848620f863477c3.bindTooltip(
                 `<div>
-                     ACO Zone: Terdampak (Pheromone: 0.87)
+                     ACO Zone: Terdampak (Pheromone: 0.75)
                  </div>`,
                 {
   "sticky": true,
@@ -238,15 +222,15 @@
             );
         
     
-            var circle_marker_fc023ba68a7c205d44402afb07152198 = L.circleMarker(
-                [-7.76953616008791, 113.220322048349],
-                {"bubblingMouseEvents": true, "color": "#e74c3c", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#e74c3c", "fillOpacity": 0.3788071415611692, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 10.576142831223383, "stroke": true, "weight": 3}
-            ).addTo(feature_group_b250e5b43ba33c0b81e96c2c4e135f4f);
+            var circle_marker_4f76f4044bb556d1c40201f6eb54f03f = L.circleMarker(
+                [-7.74308556374729, 113.200312033796],
+                {"bubblingMouseEvents": true, "color": "#e74c3c", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#e74c3c", "fillOpacity": 0.34457519583613583, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 9.891503916722716, "stroke": true, "weight": 3}
+            ).addTo(feature_group_dbd634188ac855c46960fb29b6cf2eac);
         
     
-            circle_marker_fc023ba68a7c205d44402afb07152198.bindTooltip(
+            circle_marker_4f76f4044bb556d1c40201f6eb54f03f.bindTooltip(
                 `<div>
-                     ACO Zone: Terdampak (Pheromone: 0.95)
+                     ACO Zone: Terdampak (Pheromone: 0.86)
                  </div>`,
                 {
   "sticky": true,
@@ -254,15 +238,15 @@
             );
         
     
-            var circle_marker_24ba951e600052aee7ef05e34b7a6fb6 = L.circleMarker(
-                [-8.29607077540753, 114.339813011411],
-                {"bubblingMouseEvents": true, "color": "#e74c3c", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#e74c3c", "fillOpacity": 0.3038072744597933, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 9.076145489195866, "stroke": true, "weight": 3}
-            ).addTo(feature_group_b250e5b43ba33c0b81e96c2c4e135f4f);
+            var circle_marker_14a114721ad472c9966c2019ddc66016 = L.circleMarker(
+                [-8.18922567018626, 113.137796927139],
+                {"bubblingMouseEvents": true, "color": "#e74c3c", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#e74c3c", "fillOpacity": 0.344490033536271, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 9.88980067072542, "stroke": true, "weight": 3}
+            ).addTo(feature_group_dbd634188ac855c46960fb29b6cf2eac);
         
     
-            circle_marker_24ba951e600052aee7ef05e34b7a6fb6.bindTooltip(
+            circle_marker_14a114721ad472c9966c2019ddc66016.bindTooltip(
                 `<div>
-                     ACO Zone: Terdampak (Pheromone: 0.76)
+                     ACO Zone: Terdampak (Pheromone: 0.86)
                  </div>`,
                 {
   "sticky": true,
@@ -270,15 +254,15 @@
             );
         
     
-            var circle_marker_c65223bb3a25192dd4cd60ce0e051dd9 = L.circleMarker(
-                [-8.10324302458634, 113.295384717996],
-                {"bubblingMouseEvents": true, "color": "#e74c3c", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#e74c3c", "fillOpacity": 0.3787460733239784, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 10.574921466479568, "stroke": true, "weight": 3}
-            ).addTo(feature_group_b250e5b43ba33c0b81e96c2c4e135f4f);
+            var circle_marker_80a5789d225591047ece499b1a3a4858 = L.circleMarker(
+                [-8.17166204219521, 113.178822586875],
+                {"bubblingMouseEvents": true, "color": "#e74c3c", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#e74c3c", "fillOpacity": 0.34449003353626995, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 9.8898006707254, "stroke": true, "weight": 3}
+            ).addTo(feature_group_dbd634188ac855c46960fb29b6cf2eac);
         
     
-            circle_marker_c65223bb3a25192dd4cd60ce0e051dd9.bindTooltip(
+            circle_marker_80a5789d225591047ece499b1a3a4858.bindTooltip(
                 `<div>
-                     ACO Zone: Terdampak (Pheromone: 0.95)
+                     ACO Zone: Terdampak (Pheromone: 0.86)
                  </div>`,
                 {
   "sticky": true,
@@ -286,15 +270,15 @@
             );
         
     
-            var circle_marker_e1b0b9f018b279f3d75379ff11ead796 = L.circleMarker(
-                [-8.05317947690776, 113.272170757983],
-                {"bubblingMouseEvents": true, "color": "#e74c3c", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#e74c3c", "fillOpacity": 0.3787460733239679, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 10.574921466479358, "stroke": true, "weight": 3}
-            ).addTo(feature_group_b250e5b43ba33c0b81e96c2c4e135f4f);
+            var circle_marker_d878d34cd952f1b72edbfedf60d54b76 = L.circleMarker(
+                [-8.1590172234645, 114.379603661421],
+                {"bubblingMouseEvents": true, "color": "#e74c3c", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#e74c3c", "fillOpacity": 0.34486121566939465, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 9.897224313387891, "stroke": true, "weight": 3}
+            ).addTo(feature_group_dbd634188ac855c46960fb29b6cf2eac);
         
     
-            circle_marker_e1b0b9f018b279f3d75379ff11ead796.bindTooltip(
+            circle_marker_d878d34cd952f1b72edbfedf60d54b76.bindTooltip(
                 `<div>
-                     ACO Zone: Terdampak (Pheromone: 0.95)
+                     ACO Zone: Terdampak (Pheromone: 0.86)
                  </div>`,
                 {
   "sticky": true,
@@ -302,15 +286,15 @@
             );
         
     
-            var circle_marker_ed3a1c9326a437da2d86344e01b14fd2 = L.circleMarker(
-                [-8.12360101026128, 113.262242427302],
-                {"bubblingMouseEvents": true, "color": "#e74c3c", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#e74c3c", "fillOpacity": 0.39618009758342854, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 10.92360195166857, "stroke": true, "weight": 3}
-            ).addTo(feature_group_b250e5b43ba33c0b81e96c2c4e135f4f);
+            var circle_marker_1d109402650341bf4eb1511bc2e8e6b1 = L.circleMarker(
+                [-8.1947202890097, 113.230762985505],
+                {"bubblingMouseEvents": true, "color": "#e74c3c", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#e74c3c", "fillOpacity": 0.38575527278870136, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 10.715105455774026, "stroke": true, "weight": 3}
+            ).addTo(feature_group_dbd634188ac855c46960fb29b6cf2eac);
         
     
-            circle_marker_ed3a1c9326a437da2d86344e01b14fd2.bindTooltip(
+            circle_marker_1d109402650341bf4eb1511bc2e8e6b1.bindTooltip(
                 `<div>
-                     ACO Zone: Terdampak (Pheromone: 0.99)
+                     ACO Zone: Terdampak (Pheromone: 0.96)
                  </div>`,
                 {
   "sticky": true,
@@ -318,15 +302,15 @@
             );
         
     
-            var circle_marker_ec324ab3c9ddfda6b4f926c1b8349ec2 = L.circleMarker(
-                [-8.14808124353029, 114.341487900909],
-                {"bubblingMouseEvents": true, "color": "#e74c3c", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#e74c3c", "fillOpacity": 0.4, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 11.0, "stroke": true, "weight": 3}
-            ).addTo(feature_group_b250e5b43ba33c0b81e96c2c4e135f4f);
+            var circle_marker_a5297c05493104a243b1d6d8a49b8422 = L.circleMarker(
+                [-8.17997844654125, 113.198318764535],
+                {"bubblingMouseEvents": true, "color": "#e74c3c", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#e74c3c", "fillOpacity": 0.38575527278869737, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 10.715105455773948, "stroke": true, "weight": 3}
+            ).addTo(feature_group_dbd634188ac855c46960fb29b6cf2eac);
         
     
-            circle_marker_ec324ab3c9ddfda6b4f926c1b8349ec2.bindTooltip(
+            circle_marker_a5297c05493104a243b1d6d8a49b8422.bindTooltip(
                 `<div>
-                     ACO Zone: Terdampak (Pheromone: 1.00)
+                     ACO Zone: Terdampak (Pheromone: 0.96)
                  </div>`,
                 {
   "sticky": true,
@@ -334,15 +318,15 @@
             );
         
     
-            var circle_marker_ae30c953c83a3ddd710e2e2201a74bd9 = L.circleMarker(
-                [-7.70792875288768, 113.174833208414],
-                {"bubblingMouseEvents": true, "color": "#e74c3c", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#e74c3c", "fillOpacity": 0.4, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 11.0, "stroke": true, "weight": 3}
-            ).addTo(feature_group_b250e5b43ba33c0b81e96c2c4e135f4f);
+            var circle_marker_6fb8aa3aec22dc243f1ef9dd9181dc6d = L.circleMarker(
+                [-8.06254397035834, 113.15906078651],
+                {"bubblingMouseEvents": true, "color": "#e74c3c", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#e74c3c", "fillOpacity": 0.32897292799941463, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 9.579458559988293, "stroke": true, "weight": 3}
+            ).addTo(feature_group_dbd634188ac855c46960fb29b6cf2eac);
         
     
-            circle_marker_ae30c953c83a3ddd710e2e2201a74bd9.bindTooltip(
+            circle_marker_6fb8aa3aec22dc243f1ef9dd9181dc6d.bindTooltip(
                 `<div>
-                     ACO Zone: Terdampak (Pheromone: 1.00)
+                     ACO Zone: Terdampak (Pheromone: 0.82)
                  </div>`,
                 {
   "sticky": true,
@@ -350,13 +334,13 @@
             );
         
     
-            var circle_marker_1afe8a4df132038af1e64b92708c828a = L.circleMarker(
+            var circle_marker_bbff9a0b0f4b652ca296a702940f6aac = L.circleMarker(
                 [-8.1103159780426, 113.301653394979],
                 {"bubblingMouseEvents": true, "color": "#e74c3c", "dashArray": null, "dashOffset": null, "fill": true, "fillColor": "#e74c3c", "fillOpacity": 0.4, "fillRule": "evenodd", "lineCap": "round", "lineJoin": "round", "opacity": 1.0, "radius": 11.0, "stroke": true, "weight": 3}
-            ).addTo(feature_group_b250e5b43ba33c0b81e96c2c4e135f4f);
+            ).addTo(feature_group_dbd634188ac855c46960fb29b6cf2eac);
         
     
-            circle_marker_1afe8a4df132038af1e64b92708c828a.bindTooltip(
+            circle_marker_bbff9a0b0f4b652ca296a702940f6aac.bindTooltip(
                 `<div>
                      ACO Zone: Terdampak (Pheromone: 1.00)
                  </div>`,
@@ -366,37 +350,37 @@
             );
         
     
-            feature_group_b250e5b43ba33c0b81e96c2c4e135f4f.addTo(map_4ff804a8eb466c0acbd76055eee556a9);
+            feature_group_dbd634188ac855c46960fb29b6cf2eac.addTo(map_d818ca520eb8cb84b43c3d1e9543b767);
         
     
-            var feature_group_a48c29ba236e89ee7c7bb27d4b043dff = L.featureGroup(
+            var feature_group_cfee25e9bddcb38c767c15607fb3c120 = L.featureGroup(
                 {
 }
             );
         
     
-            feature_group_a48c29ba236e89ee7c7bb27d4b043dff.addTo(map_4ff804a8eb466c0acbd76055eee556a9);
+            feature_group_cfee25e9bddcb38c767c15607fb3c120.addTo(map_d818ca520eb8cb84b43c3d1e9543b767);
         
     
-            var layer_control_07071f88299e6fe8f113cffbdc1ed3d3_layers = {
+            var layer_control_62243a4214440d40e3af93b5aa8f6876_layers = {
                 base_layers : {
-                    "cartodbdarkmatter" : tile_layer_e60ea8756d1fa7eff091b205882f0090,
+                    "cartodbdarkmatter" : tile_layer_5ad74280ae02d27b7399c7e39781dbd2,
                 },
                 overlays :  {
-                    "Historical Heatmap (Weighted by Mag)" : heat_map_f757dd013a76b4780df17310c19f8243,
-                    "ACO Risk Zones" : feature_group_b250e5b43ba33c0b81e96c2c4e135f4f,
-                    "GA Optimal Path" : feature_group_a48c29ba236e89ee7c7bb27d4b043dff,
+                    "Historical Heatmap (Weighted by Mag)" : heat_map_aba015cd0478d441d3838619b4dc7b19,
+                    "ACO Risk Zones" : feature_group_dbd634188ac855c46960fb29b6cf2eac,
+                    "GA Optimal Path" : feature_group_cfee25e9bddcb38c767c15607fb3c120,
                 },
             };
-            let layer_control_07071f88299e6fe8f113cffbdc1ed3d3 = L.control.layers(
-                layer_control_07071f88299e6fe8f113cffbdc1ed3d3_layers.base_layers,
-                layer_control_07071f88299e6fe8f113cffbdc1ed3d3_layers.overlays,
+            let layer_control_62243a4214440d40e3af93b5aa8f6876 = L.control.layers(
+                layer_control_62243a4214440d40e3af93b5aa8f6876_layers.base_layers,
+                layer_control_62243a4214440d40e3af93b5aa8f6876_layers.overlays,
                 {
   "position": "topright",
   "collapsed": true,
   "autoZIndex": true,
 }
-            ).addTo(map_4ff804a8eb466c0acbd76055eee556a9);
+            ).addTo(map_d818ca520eb8cb84b43c3d1e9543b767);
 
         
 </script>

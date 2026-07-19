@@ -2,6 +2,7 @@
 import pandas as pd
 import plotly.graph_objects as go
 import os
+import math
 import numpy as np
 
 # --- KONFIGURASI HALAMAN ---
@@ -22,6 +23,54 @@ VALIDATION_PATH = os.path.join(
 )
 # 3. Path Input Data Mentah (Untuk visualisasi H-1 ke H)
 INPUT_DATA_PATH = os.path.join(CURRENT_DIR, "../../output/lstm_results/lstm_data_for_cnn.xlsx")
+
+JATIM_COORDINATES = {
+    # ==========================
+    # KABUPATEN (29)
+    # ==========================
+    "Pacitan": (-8.1944, 111.1055),
+    "Ponorogo": (-7.8717, 111.4620),
+    "Trenggalek": (-8.0500, 111.7167),
+    "Tulungagung": (-8.0657, 111.9025),
+    "Blitar": (-8.0982, 112.1681),
+    "Kediri": (-7.8480, 112.0178),
+    "Malang": (-8.0069, 112.6293),
+    "Lumajang": (-8.1335, 113.2248),
+    "Jember": (-8.1724, 113.7000),
+    "Banyuwangi": (-8.2192, 114.3691),
+    "Bondowoso": (-7.9135, 113.8214),
+    "Situbondo": (-7.7062, 114.0098),
+    "Probolinggo": (-7.7543, 113.2159),
+    "Pasuruan": (-7.6450, 112.9070),
+    "Sidoarjo": (-7.4467, 112.7183),
+    "Mojokerto": (-7.5361, 112.4255),
+    "Jombang": (-7.5459, 112.2338),
+    "Nganjuk": (-7.6051, 111.9035),
+    "Madiun": (-7.6298, 111.5239),
+    "Magetan": (-7.6536, 111.3270),
+    "Ngawi": (-7.4039, 111.4467),
+    "Bojonegoro": (-7.1502, 111.8817),
+    "Tuban": (-6.8976, 112.0649),
+    "Lamongan": (-7.1197, 112.4171),
+    "Gresik": (-7.1567, 112.6555),
+    "Bangkalan": (-7.0455, 112.7351),
+    "Sampang": (-7.1872, 113.2394),
+    "Pamekasan": (-7.1603, 113.4821),
+    "Sumenep": (-7.0045, 113.8592),
+
+    # ==========================
+    # KOTA (9)
+    # ==========================
+    "Kota Kediri": (-7.8167, 112.0167),
+    "Kota Blitar": (-8.0956, 112.1608),
+    "Kota Malang": (-7.9819, 112.6265),
+    "Kota Probolinggo": (-7.7549, 113.2152),
+    "Kota Pasuruan": (-7.6449, 112.9061),
+    "Kota Mojokerto": (-7.4722, 112.4336),
+    "Kota Madiun": (-7.6298, 111.5239),
+    "Kota Surabaya": (-7.2575, 112.7521),
+    "Kota Batu": (-7.8671, 112.5239),
+}
 
 # --- FUNGSI LOAD DATA ---
 def load_prediction_data():
@@ -83,6 +132,25 @@ def angle_to_direction(angle):
         return "Selatan"
     else:
         return "Barat"
+
+def nearest_city(lat, lon):
+
+    nearest = None
+    min_distance = float("inf")
+
+    for city, (city_lat, city_lon) in JATIM_COORDINATES.items():
+
+        distance = math.sqrt(
+            (lat - city_lat) ** 2 +
+            (lon - city_lon) ** 2
+        )
+
+        if distance < min_distance:
+            min_distance = distance
+            nearest = city
+
+    return nearest
+
 # --- FUNGSI PLOT KOMPAS (FIXED) ---
 def plot_compass_fixed(sudut_derajat, arah_label, is_consistent, zone_real):
     # Visualisasi Kompas: 0 derajat di Utara (Atas)
@@ -329,6 +397,10 @@ def main():
 
             actual_lat = val["actual_event_lat"]
             actual_lon = val["actual_event_lon"]
+            pred_city = nearest_city(pred_lat, pred_lon)
+            actual_city = nearest_city(actual_lat, actual_lon)
+            st.write("Pred City :", pred_city)
+            st.write("Actual City :", actual_city)
 
             fig_validation = go.Figure()
 
@@ -341,8 +413,25 @@ def main():
                         size=16,
                         color="red"
                     ),
-                    text=["Predicted Location"],
-                    name="Prediction"
+                    name="Prediction",
+
+                    hoverlabel=dict(
+                        bgcolor="#1E293B",     # biru gelap
+                        bordercolor="#38BDF8", # biru muda
+                        font=dict(
+                            color="white",
+                            size=14
+                        )
+                    ),
+
+                    hovertemplate=(
+                        "<b>Prediction</b><br>"
+                        f"Daerah : {pred_city}<br>"
+                        f"Arah : {pred_direction}<br>"
+                        f"Latitude : {pred_lat:.5f}<br>"
+                        f"Longitude : {pred_lon:.5f}"
+                        "<extra></extra>"
+                    )
                 )
             )
 
@@ -355,8 +444,25 @@ def main():
                         size=16,
                         color="green"
                     ),
-                    text=["Actual Event"],
-                    name="Actual"
+                    name="Actual",
+
+                    hoverlabel=dict(
+                        bgcolor="#1E293B",     # biru gelap
+                        bordercolor="#38BDF8", # biru muda
+                        font=dict(
+                            color="white",
+                            size=14
+                        )
+                    ),
+
+                    hovertemplate=(
+                        "<b>Actual Event</b><br>"
+                        f"Daerah : {actual_city}<br>"
+                        f"Arah : {actual_direction}<br>"
+                        f"Latitude : {actual_lat:.5f}<br>"
+                        f"Longitude : {actual_lon:.5f}"
+                        "<extra></extra>"
+                    )
                 )
             )
 
@@ -369,6 +475,8 @@ def main():
                         width=3,
                         color="orange"
                     ),
+                    hoverinfo="skip",      # <<< TAMBAHKAN
+                    showlegend=True,
                     name="Prediction Error"
                 )
             )
@@ -400,6 +508,7 @@ def main():
                 title="Prediction vs Actual Event (January 2025)"
 
             )
+            
 
             st.plotly_chart(
                 fig_validation,
