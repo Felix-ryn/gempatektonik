@@ -557,7 +557,13 @@ class ACOEngine:
                 <b>Tanggal:</b> {tanggal}<br>
                 <b>Magnitudo:</b> {mag}<br>
                 <b>Kedalaman:</b> {depth} km<br>
-                <b>Radius Prediksi:</b> {rad} km<br>
+                <b>Radius Prediksi:</b> {rad:.2f} km<br>
+
+                <hr>
+
+                <b>Titik Pusat ACO</b><br>
+                Latitude : {r["ACO_Center_Lat"]:.6f}<br>
+                Longitude : {r["ACO_Center_Lon"]:.6f}
                 """
 
                 popup = folium.Popup(popup_html, max_width=300)

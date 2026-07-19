@@ -15,7 +15,12 @@ st.set_page_config(
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 # 1. Path Output Prediksi CNN
 CSV_PRED_PATH = os.path.join(CURRENT_DIR, "../../output/cnn_results/cnn_next_earthquake_prediction.csv")
-# 2. Path Input Data Mentah (Untuk visualisasi H-1 ke H)
+# 2. Path Output Validasi Januari 2025
+VALIDATION_PATH = os.path.join(
+    CURRENT_DIR,
+    "../../output/cnn_results/validation_2025.csv"
+)
+# 3. Path Input Data Mentah (Untuk visualisasi H-1 ke H)
 INPUT_DATA_PATH = os.path.join(CURRENT_DIR, "../../output/lstm_results/lstm_data_for_cnn.xlsx")
 
 # --- FUNGSI LOAD DATA ---
@@ -27,6 +32,19 @@ def load_prediction_data():
         return df
     except Exception as e:
         st.error(f"Error loading Prediction CSV: {e}")
+        return None
+
+def load_validation_data():
+    """Load hasil validasi prediksi terhadap data aktual Januari 2025"""
+
+    if not os.path.exists(VALIDATION_PATH):
+        return None
+
+    try:
+        return pd.read_csv(VALIDATION_PATH)
+
+    except Exception as e:
+        st.error(f"Error loading Validation CSV : {e}")
         return None
 
 def load_input_data():
@@ -53,6 +71,18 @@ def check_consistency(arah_label, sudut):
     else: zone = "Barat"
     return (zone == arah_label), zone
 
+# --- KONVERSI SUDUT MENJADI 4 ARAH MATA ANGIN ---
+def angle_to_direction(angle):
+    angle = angle % 360
+
+    if angle >= 315 or angle < 45:
+        return "Utara"
+    elif angle >= 45 and angle < 135:
+        return "Timur"
+    elif angle >= 135 and angle < 225:
+        return "Selatan"
+    else:
+        return "Barat"
 # --- FUNGSI PLOT KOMPAS (FIXED) ---
 def plot_compass_fixed(sudut_derajat, arah_label, is_consistent, zone_real):
     # Visualisasi Kompas: 0 derajat di Utara (Atas)
@@ -183,6 +213,7 @@ def main():
     st.markdown("Dashboard ini menampilkan hasil prediksi arah gempa berikutnya berdasarkan pola **Citra ACO (Saat Ini)** dan **Riwayat Pergeseran (Masa Lalu)**.")
 
     df = load_prediction_data()
+    validation_df = load_validation_data()
     df_input = load_input_data()
 
     if df is not None and not df.empty:
@@ -235,6 +266,159 @@ def main():
                     st.success("✅ Output Klasifikasi & Regresi Sinkron.")
                 else:
                     st.warning("⚠️ Terdapat deviasi antara label & sudut.")
+
+        # ==========================================================
+        # VALIDASI PREDIKSI TERHADAP DATA AKTUAL JANUARI 2025
+        # ==========================================================
+
+        st.divider()
+
+        st.subheader("📍 Prediction Validation")
+
+        if validation_df is not None and not validation_df.empty:
+
+            val = validation_df.iloc[-1]
+
+            angle_pred = float(val["pred_angle"])
+            angle_actual = float(val["best_match_angle"])
+            pred_direction = angle_to_direction(angle_pred)
+            actual_direction = angle_to_direction(angle_actual)
+            angle_diff = float(val["angle_diff_deg"])
+            distance = float(val["best_match_distance_km"])
+            match_flag = str(val["match_flag"]).strip().lower()
+
+            status = "✅ VALID" if match_flag == "true" else "❌ MENYIMPANG"
+
+            c1, c2, c3, c4 = st.columns(4)
+
+            c1.metric(
+                "Prediksi",
+                pred_direction,
+                f"{angle_pred:.2f}°"
+            )
+
+            c2.metric(
+                "Aktual",
+                actual_direction,
+                f"{angle_actual:.2f}°"
+            )
+
+            c3.metric(
+                "Angle Difference",
+                f"{angle_diff:.2f}°"
+            )
+
+            c4.metric(
+                "Shift Distance",
+                f"{distance:.2f} km"
+            )
+
+            st.success(f"Validation Status : {status}")
+
+        else:
+
+            st.warning("Validation data belum tersedia.")
+
+        if validation_df is not None and not validation_df.empty:
+
+            pred = df.iloc[-1]
+            val = validation_df.iloc[-1]
+
+            pred_lat = pred["proj_target_lat"]
+            pred_lon = pred["proj_target_lon"]
+
+            actual_lat = val["actual_event_lat"]
+            actual_lon = val["actual_event_lon"]
+
+            fig_validation = go.Figure()
+
+            fig_validation.add_trace(
+                go.Scattermapbox(
+                    mode="markers",
+                    lat=[pred_lat],
+                    lon=[pred_lon],
+                    marker=dict(
+                        size=16,
+                        color="red"
+                    ),
+                    text=["Predicted Location"],
+                    name="Prediction"
+                )
+            )
+
+            fig_validation.add_trace(
+                go.Scattermapbox(
+                    mode="markers",
+                    lat=[actual_lat],
+                    lon=[actual_lon],
+                    marker=dict(
+                        size=16,
+                        color="green"
+                    ),
+                    text=["Actual Event"],
+                    name="Actual"
+                )
+            )
+
+            fig_validation.add_trace(
+                go.Scattermapbox(
+                    mode="lines",
+                    lat=[pred_lat, actual_lat],
+                    lon=[pred_lon, actual_lon],
+                    line=dict(
+                        width=3,
+                        color="orange"
+                    ),
+                    name="Prediction Error"
+                )
+            )
+
+            fig_validation.update_layout(
+
+                mapbox_style="open-street-map",
+
+                mapbox=dict(
+
+                    center=dict(
+                        lat=(pred_lat + actual_lat)/2,
+                        lon=(pred_lon + actual_lon)/2
+                    ),
+
+                    zoom=6
+
+                ),
+
+                height=500,
+
+                margin=dict(
+                    l=0,
+                    r=0,
+                    t=40,
+                    b=0
+                ),
+
+                title="Prediction vs Actual Event (January 2025)"
+
+            )
+
+            st.plotly_chart(
+                fig_validation,
+                use_container_width=True
+            )
+
+            st.info(f"""
+            ### Ringkasan Validasi
+
+            - **Prediksi CNN** mengarah ke **{pred_direction}** ({angle_pred:.2f}°)
+
+            - **Data Aktual Januari 2025** berada di arah **{actual_direction}** ({angle_actual:.2f}°)
+
+            - **Selisih Sudut** sebesar **{angle_diff:.2f}°**
+
+            - **Pergeseran Lokasi** sebesar **{distance:.2f} km**
+
+            - **Status Validasi:** **{status}**
+            """)
 
         # --- TABEL DATA ---
         st.divider()
